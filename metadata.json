@@ -1,0 +1,5 @@
+{
+  "name": "AI Feast Engine",
+  "description": "SaaS de Dados para LLMs e Crawlers - Ingestão de RSS, Resumos com Gemini e API para Bots.",
+  "requestFramePermissions": []
+}

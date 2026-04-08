@@ -1,0 +1,97 @@
+import React, { useEffect, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { auth, logOut, signInWithGoogle } from "../firebase";
+import { onAuthStateChanged, User } from "firebase/auth";
+import { LayoutDashboard, LogOut, Menu, User as UserIcon, Zap, Database, ShieldCheck } from "lucide-react";
+import { cn } from "../lib/utils";
+
+export default function Layout({ children }: { children: React.ReactNode }) {
+  const [user, setUser] = useState<User | null>(null);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    return onAuthStateChanged(auth, (u) => setUser(u));
+  }, []);
+
+  return (
+    <div className="min-h-screen flex flex-col">
+      <header className="sticky top-0 z-50 w-full border-b border-white/10 bg-dark-bg/80 backdrop-blur-md">
+        <div className="container mx-auto px-4 h-16 flex items-center justify-between">
+          <Link to="/" className="flex items-center gap-2 group">
+            <div className="p-2 bg-neon-purple/20 rounded-lg group-hover:bg-neon-purple/30 transition-colors">
+              <Database className="w-6 h-6 text-neon-purple neon-text-purple" />
+            </div>
+            <span className="text-xl font-display font-bold tracking-tighter">
+              AI <span className="text-neon-cyan neon-text-cyan">FEAST</span> ENGINE
+            </span>
+          </Link>
+
+          <nav className="hidden md:flex items-center gap-8">
+            <Link to="/" className="text-sm font-medium text-gray-400 hover:text-white transition-colors">Home</Link>
+            <Link to="/#pricing" className="text-sm font-medium text-gray-400 hover:text-white transition-colors">Pricing</Link>
+            {user ? (
+              <>
+                <Link to="/dashboard" className="text-sm font-medium text-gray-400 hover:text-white transition-colors">Dashboard</Link>
+                <button 
+                  onClick={() => logOut()}
+                  className="flex items-center gap-2 text-sm font-medium text-gray-400 hover:text-red-400 transition-colors"
+                >
+                  <LogOut className="w-4 h-4" />
+                  Sign Out
+                </button>
+              </>
+            ) : (
+              <button 
+                onClick={() => signInWithGoogle()}
+                className="px-4 py-2 bg-neon-purple text-white rounded-full text-sm font-semibold neon-glow-purple hover:bg-neon-purple/90 transition-all"
+              >
+                Get Started
+              </button>
+            )}
+          </nav>
+
+          <button className="md:hidden p-2" onClick={() => setIsMenuOpen(!isMenuOpen)}>
+            <Menu className="w-6 h-6" />
+          </button>
+        </div>
+      </header>
+
+      <main className="flex-1">
+        {children}
+      </main>
+
+      <footer className="border-t border-white/10 py-12 bg-dark-card">
+        <div className="container mx-auto px-4 grid grid-cols-1 md:grid-cols-4 gap-8">
+          <div className="col-span-1 md:col-span-2">
+            <div className="flex items-center gap-2 mb-4">
+              <Database className="w-6 h-6 text-neon-purple" />
+              <span className="text-lg font-display font-bold">AI FEAST ENGINE</span>
+            </div>
+            <p className="text-gray-400 text-sm max-w-xs">
+              The ultimate data pipeline for LLMs and bots. Ingest, process, and serve RSS data with AI-powered summaries and translations.
+            </p>
+          </div>
+          <div>
+            <h4 className="font-bold mb-4">Product</h4>
+            <ul className="space-y-2 text-sm text-gray-400">
+              <li><Link to="/#features" className="hover:text-white">Features</Link></li>
+              <li><Link to="/#pricing" className="hover:text-white">Pricing</Link></li>
+              <li><Link to="/#docs" className="hover:text-white">Documentation</Link></li>
+            </ul>
+          </div>
+          <div>
+            <h4 className="font-bold mb-4">Legal</h4>
+            <ul className="space-y-2 text-sm text-gray-400">
+              <li><a href="#" className="hover:text-white">Privacy Policy</a></li>
+              <li><a href="#" className="hover:text-white">Terms of Service</a></li>
+            </ul>
+          </div>
+        </div>
+        <div className="container mx-auto px-4 mt-12 pt-8 border-t border-white/5 text-center text-xs text-gray-500">
+          © 2026 AI Feast Engine. All rights reserved.
+        </div>
+      </footer>
+    </div>
+  );
+}

@@ -1,0 +1,386 @@
+import "dotenv/config";
+import express from "express";
+console.log(">>> SERVER.TS IS STARTING...");
+import { createServer as createViteServer } from "vite";
+import path from "path";
+import { fileURLToPath } from "url";
+import cors from "cors";
+import { GoogleGenAI } from "@google/genai";
+import Parser from "rss-parser";
+import { createClient } from "@supabase/supabase-js";
+import Stripe from "stripe";
+import { queueService } from "./src/services/queueService";
+import { NextFunction, Request, Response } from "express";
+
+
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("Unhandled Rejection at:", promise, "reason:", reason);
+});
+
+process.on("uncaughtException", (err) => {
+  console.error("Uncaught Exception:", err);
+});
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Initialize Supabase Admin (Service Role)
+const supabaseUrl = process.env.VITE_SUPABASE_URL || "";
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+
+if (!supabaseUrl || !supabaseServiceKey) {
+  console.error("CRITICAL: Supabase credentials missing in .env");
+}
+
+const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+  auth: {
+    autoRefreshToken: false,
+    persistSession: false
+  }
+});
+
+// Initialize Stripe
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "sk_test_mock", {
+  apiVersion: "2025-01-27.acacia" as any,
+});
+
+// Initialize Gemini
+const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
+const parser = new Parser();
+
+const app = express();
+const PORT = 3000;
+
+app.use(cors());
+app.use(express.json());
+
+app.get("/api/health", (req, res) => res.json({ status: "ok" }));
+
+// --- Pipeline Logic ---
+
+async function processPostWithGemini(item: any) {
+  const model = "gemini-1.5-flash";
+  const prompt = `Resuma o seguinte conteúdo de notícia em português de forma concisa (máximo 3 parágrafos). 
+  Além disso, forneça traduções desse resumo para os seguintes idiomas: en, es, fr, de, it, ja, ko, zh, ru, ar.
+  Retorne APENAS um JSON no formato:
+  {
+    "summary": "resumo em português",
+    "translations": {
+      "en": "...",
+      "es": "...",
+      ...
+    }
+  }
+  Conteúdo: ${item.contentSnippet || item.content || item.title}`;
+
+  try {
+    const response = await genAI.models.generateContent({
+      model,
+      contents: prompt,
+      config: { responseMimeType: "application/json" }
+    });
+    return JSON.parse(response.text || "{}");
+  } catch (error) {
+    console.error("Gemini Error:", error);
+    return { summary: item.contentSnippet || item.title, translations: {} };
+  }
+}
+
+async function runIngestion() {
+  console.log("Starting RSS Ingestion...");
+  
+  const { data: feeds, error: feedsError } = await supabase.from("feeds").select("*");
+  if (feedsError) {
+    console.error("Error fetching feeds:", feedsError);
+    return;
+  }
+
+  for (const feed of feeds) {
+    try {
+      const feedData = await parser.parseURL(feed.url);
+      for (const item of feedData.items.slice(0, 5)) {
+        // Check if post exists
+        const { data: existingPost } = await supabase
+          .from("posts")
+          .select("id")
+          .eq("link", item.link)
+          .single();
+        
+        if (!existingPost) {
+          console.log(`Ingesting new post: ${item.title}`);
+          
+          const { error: insertError } = await supabase.from("posts").insert({
+            title: item.title,
+            link: item.link,
+            pub_date: item.pubDate ? new Date(item.pubDate).toISOString() : new Date().toISOString(),
+            status: "pending", // Mark as pending for AI batch processing
+            source_id: feed.id,
+            category: feed.category || "General"
+          });
+
+          if (insertError) console.error("Error inserting post:", insertError);
+        }
+      }
+    } catch (error) {
+      console.error(`Error processing feed ${feed.url}:`, error);
+    }
+  }
+  console.log("Ingestion complete.");
+}
+
+// Run ingestion every 30 minutes
+setInterval(() => {
+  runIngestion().catch(err => console.error("Interval Ingestion Error:", err));
+}, 30 * 60 * 1000);
+
+// Run on startup if feeds exist
+setTimeout(async () => {
+  try {
+    const { count } = await supabase.from("feeds").select("*", { count: 'exact', head: true });
+    
+    if (count === 0) {
+      console.log("Seeding initial feeds...");
+      const initialFeeds = [
+        { name: "TechCrunch", url: "https://techcrunch.com/feed/", category: "Tech" },
+        { name: "The Verge", url: "https://www.theverge.com/rss/index.xml", category: "Tech" },
+        { name: "Wired", url: "https://www.wired.com/feed/rss", category: "Tech" },
+        { name: "NASA", url: "https://www.nasa.gov/rss/dyn/breaking_news.rss", category: "Science" },
+        { name: "BBC News", url: "http://feeds.bbci.co.uk/news/rss.xml", category: "General" }
+      ];
+      await supabase.from("feeds").insert(initialFeeds);
+    }
+    await runIngestion();
+  } catch (err) {
+    console.error("Startup Ingestion Error:", err);
+  }
+}, 5000);
+
+// --- API Endpoints ---
+
+// Public API for Bots
+app.get("/api/feed", async (req, res) => {
+  const apiKey = req.header("X-API-Key");
+  if (!apiKey) return res.status(401).json({ error: "Missing API Key" });
+
+  const { data: user, error: userError } = await supabase
+    .from("users")
+    .select("*")
+    .eq("api_key", apiKey)
+    .single();
+
+  if (userError || !user) return res.status(403).json({ error: "Invalid API Key" });
+
+  // Check limits
+  if (user.plan === "free" && user.usage_count >= 100) {
+    return res.status(429).json({ error: "Monthly limit reached (Free Plan)" });
+  }
+
+  // Charge if Pro (Simulated)
+  if (user.plan === "pro") {
+    console.log(`Charging user ${user.id} $0.001 for request`);
+  }
+
+  // Update usage count
+  await supabase
+    .from("users")
+    .update({ usage_count: user.usage_count + 1 })
+    .eq("id", user.id);
+
+  // Log usage
+  await supabase.from("usage_logs").insert({
+    user_id: user.id,
+    endpoint: "/api/feed",
+    cost: user.plan === "pro" ? 0.001 : 0
+  });
+
+  // Fetch posts
+  const { data: posts } = await supabase
+    .from("posts")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(20);
+
+  res.json({ posts });
+});
+
+// Admin: Add Feed
+app.post("/api/admin/feeds", async (req, res) => {
+  const { url, name, category } = req.body;
+  const { data, error } = await supabase
+    .from("feeds")
+    .insert({ url, name, category })
+    .select()
+    .single();
+    
+    if (error) return res.status(500).json({ error: error.message });
+  res.json({ id: data.id });
+});
+
+// Middleware to check Admin role
+async function checkAdmin(req: Request, res: Response, next: NextFunction) {
+  const userId = req.header("X-User-Id"); // Real auth would use JWT, here we mock for simplicity based on provided context
+  if (!userId) return res.status(401).json({ error: "Missing User ID" });
+
+  const { data: user, error } = await supabase
+    .from("users")
+    .select("role")
+    .eq("id", userId)
+    .single();
+
+  if (error || user?.role !== "admin") {
+    return res.status(403).json({ error: "Admin access required" });
+  }
+  next();
+}
+
+// Admin: Process Pending Batch
+app.post("/api/admin/process-batch", checkAdmin, async (req, res) => {
+  try {
+    const { data: pendingPosts, error } = await supabase
+      .from("posts")
+      .select("id")
+      .eq("status", "pending");
+
+    if (error) throw error;
+
+    if (!pendingPosts || pendingPosts.length === 0) {
+      return res.json({ message: "No pending posts to process", processed: 0 });
+    }
+
+    const postIds = pendingPosts.map(p => p.id);
+    queueService.addTasks(postIds);
+
+    res.json({ 
+      message: `Batch processing started for ${postIds.length} posts`, 
+      count: postIds.length,
+      stats: queueService.getStats()
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+// Stats for Landing Page
+app.get("/api/stats", async (req, res) => {
+  const { count: postsCount } = await supabase.from("posts").select("*", { count: 'exact', head: true });
+  const { count: feedsCount } = await supabase.from("feeds").select("*", { count: 'exact', head: true });
+  
+  res.json({ 
+    postsCount: postsCount || 0, 
+    feedsCount: feedsCount || 0, 
+    languages: 11 
+  });
+});
+
+// --- Stripe Integration (Phase 1: Preparation) ---
+
+const STRIPE_PRO_PRICE_ID = process.env.STRIPE_PRO_PRICE_ID || "price_H5ggv97GZ8HjuK"; // Placeholder
+
+// Route to create Stripe Checkout Session
+app.post("/api/create-checkout-session", async (req, res) => {
+  const { userId, email } = req.body;
+  
+  if (!userId || !email) {
+    return res.status(400).json({ error: "Missing userId or email" });
+  }
+
+  try {
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ["card"],
+      line_items: [
+        {
+          price: STRIPE_PRO_PRICE_ID,
+          quantity: 1,
+        },
+      ],
+      mode: "subscription",
+      success_url: `${req.headers.origin}/dashboard?success=true`,
+      cancel_url: `${req.headers.origin}/dashboard?canceled=true`,
+      customer_email: email,
+      client_reference_id: userId,
+      metadata: {
+        userId: userId,
+      },
+    });
+
+    res.json({ id: session.id, url: session.url });
+  } catch (err: any) {
+    console.error("Stripe Session Error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Stripe Webhook Handler (Placeholder for Phase 1)
+app.post("/api/stripe-webhook", express.raw({ type: "application/json" }), async (req, res) => {
+  const sig = req.headers["stripe-signature"];
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+
+  if (!webhookSecret) {
+    console.log("⚠️ Stripe Webhook Secret is not set. Webhook skipped.");
+    return res.status(200).json({ received: true, note: "Webhook secret missing" });
+  }
+
+  let event;
+
+  try {
+    event = stripe.webhooks.constructEvent(req.body, sig as string, webhookSecret);
+  } catch (err: any) {
+    console.error(`❌ Webhook Error: ${err.message}`);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  // Handle the event
+  switch (event.type) {
+    case "checkout.session.completed":
+      const session = event.data.object as any;
+      const userId = session.client_reference_id;
+      const customerId = session.customer;
+
+      console.log(`💰 Payment succeeded for user ${userId}. Customer ID: ${customerId}`);
+      
+      // Update user plan to 'pro' and store stripe_customer_id
+      const { error } = await supabase
+        .from("users")
+        .update({ 
+          plan: "pro", 
+          stripe_customer_id: customerId 
+        })
+        .eq("id", userId);
+
+      if (error) console.error("Error updating user plan on webhook:", error);
+      break;
+    default:
+      console.log(`Unhandled event type ${event.type}`);
+  }
+
+  res.json({ received: true });
+});
+
+// --- Vite Setup ---
+
+async function startServer() {
+  console.log("Starting server setup...");
+  if (process.env.NODE_ENV !== "production") {
+    console.log("Setting up Vite middleware (Development)...");
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: "spa",
+    });
+    app.use(vite.middlewares);
+  } else {
+    console.log("Serving static files (Production)...");
+    const distPath = path.join(process.cwd(), "dist");
+    app.use(express.static(distPath));
+    app.get("*", (req, res) => {
+      res.sendFile(path.join(distPath, "index.html"));
+    });
+  }
+
+  app.listen(PORT, "0.0.0.0", () => {
+    console.log(`>>> AI Feast Engine is running at http://localhost:${PORT}`);
+    console.log(`>>> Environment: ${process.env.NODE_ENV || 'development'}`);
+  });
+}
+
+startServer();
