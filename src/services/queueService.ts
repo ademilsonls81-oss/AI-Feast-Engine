@@ -1,7 +1,7 @@
-ï»¿import { createClient } from "@supabase/supabase-js";
+import { createClient } from "@supabase/supabase-js";
 import OpenAI from "openai";
 
-// ConfiguraÃ§Ãµes de performance
+// Configurações de performance
 const MAX_CONCURRENT_POSTS = Number(process.env.MAX_CONCURRENT_POSTS) || 3;
 const BATCH_DELAY_MS = Number(process.env.BATCH_DELAY_MS) || 3000;
 
@@ -13,14 +13,14 @@ class QueueService {
     process.env.SUPABASE_SERVICE_ROLE_KEY || ""
   );
   
-  // ConexÃ£o com OpenRouter
+  // Conexão com OpenRouter
   private openai = new OpenAI({
     baseURL: "https://openrouter.ai/api/v1",
     apiKey: process.env.OPENROUTER_API_KEY || "",
   });
 
   constructor() {
-    console.log(`[QueueService] Ativo. ConcorrÃªncia: ${MAX_CONCURRENT_POSTS}, Delay: ${BATCH_DELAY_MS}ms`);
+    console.log(`[QueueService] Ativo. Concorrência: ${MAX_CONCURRENT_POSTS}, Delay: ${BATCH_DELAY_MS}ms`);
   }
 
   public addTasks(postIds: string[]) {
@@ -57,7 +57,7 @@ class QueueService {
       .eq("id", postId)
       .single();
 
-    if (fetchError || !post) throw new Error(`Post ${postId} nÃ£o encontrado`);
+    if (fetchError || !post) throw new Error(`Post ${postId} não encontrado`);
 
     const result = await this.processWithOpenRouter(post);
 
@@ -81,18 +81,18 @@ class QueueService {
   private async processWithOpenRouter(post: any) {
     const sourceText = post.content_raw || post.title;
     
-    const prompt = `VocÃª Ã© um motor de processamento de notÃ­cias de alta performance.
-Resuma o seguinte conteÃºdo em portuguÃªs (mÃ¡ximo 3 parÃ¡grafos).
-ForneÃ§a traduÃ§Ãµes do resumo para: en, es, fr, de, it, ja, ko, zh, ru, ar.
+    const prompt = `Você é um motor de processamento de notícias de alta performance.
+Resuma o seguinte conteúdo em português (máximo 3 parágrafos).
+Forneça traduções do resumo para: en, es, fr, de, it, ja, ko, zh, ru, ar.
 
-Retorne APENAS um JSON vÃ¡lido:
+Retorne APENAS um JSON válido:
 {
   "summary": "resumo em pt",
   "translations": { "en": "...", "es": "...", "fr": "...", "de": "...", "it": "...", "ja": "...", "ko": "...", "zh": "...", "ru": "...", "ar": "..." }
 }
 
-ConteÃºdo:
-TÃ­tulo: ${post.title}
+Conteúdo:
+Título: ${post.title}
 Corpo: ${sourceText}`;
 
     try {
