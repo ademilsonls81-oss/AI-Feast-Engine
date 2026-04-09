@@ -97,7 +97,7 @@ Corpo: ${sourceText}`;
 
     try {
       const completion = await this.openai.chat.completions.create({
-        model: "meta-llama/llama-3.1-8b-instruct:free",
+        model: "openrouter/auto",
         messages: [{ role: "user", content: prompt }],
         response_format: { type: "json_object" },
       });
