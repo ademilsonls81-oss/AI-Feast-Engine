@@ -97,7 +97,7 @@ Corpo: ${sourceText}`;
 
     try {
       const completion = await this.openai.chat.completions.create({
-        model: "mistralai/mistral-7b-instruct:free",
+        model: "nousresearch/hermes-3-llama-3.1-405b:free",
         messages: [{ role: "user", content: prompt }],
         response_format: { type: "json_object" },
       });
