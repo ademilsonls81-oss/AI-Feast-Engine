@@ -47,7 +47,8 @@ const parser = new Parser({
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
 
-// Apply CORS
+// Apply CORS & Trust Proxy for rate limiter (IPv6 support)
+app.set("trust proxy", 1);
 app.use(cors());
 
 // Special handling for Stripe Webhook (needs raw body)
@@ -111,6 +112,8 @@ const allowedOrigins = [
   "http://localhost:5173",
   "http://localhost:3000",
   "https://aifeastengine.com",
+  "https://www.aifeastengine.com",
+  "https://api.aifeastengine.com",
   /\.vercel\.app$/ // Allow Vercel preview deployments
 ];
 
