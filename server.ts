@@ -114,6 +114,7 @@ const allowedOrigins = [
   "https://aifeastengine.com",
   "https://www.aifeastengine.com",
   "https://api.aifeastengine.com",
+  "https://ai-feast-engine.vercel.app",
   /\.vercel\.app$/ // Allow Vercel preview deployments
 ];
 
