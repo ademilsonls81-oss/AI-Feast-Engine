@@ -86,7 +86,7 @@ class QueueService {
   }
 
   private async processWithGemini(post: any) {
-    const model = "gemini-1.5-flash";
+    const model = "gemini-2.0-flash";
     
     // Use content_raw as primary source, fallback to title/snippet
     const sourceText = post.content_raw || post.title;
