@@ -46,8 +46,8 @@ export default function Docs() {
             <section id="base-url" className="p-6 bg-dark-card border border-white/10 rounded-2xl">
               <h3 className="text-sm font-bold text-gray-400 uppercase mb-4">Base API URL</h3>
               <div className="flex items-center justify-between bg-black/40 p-4 rounded-xl border border-white/5 group">
-                <code className="text-neon-cyan font-mono text-sm break-all">https://ai-feast-engine.app/api</code>
-                <button onClick={() => copyToClipboard("https://ai-feast-engine.app/api")} className="p-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                <code className="text-neon-cyan font-mono text-sm break-all">https://ai-feast-engine.onrender.com/api</code>
+                <button onClick={() => copyToClipboard("https://ai-feast-engine.onrender.com/api")} className="p-2 opacity-0 group-hover:opacity-100 transition-opacity">
                   <Copy className="w-4 h-4 text-gray-500 hover:text-white" />
                 </button>
               </div>
@@ -140,10 +140,10 @@ export default function Docs() {
                 <div className="bg-dark-card border border-white/10 rounded-2xl overflow-hidden">
                   <div className="bg-white/5 px-4 py-2 flex items-center justify-between border-b border-white/5">
                     <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">cURL</span>
-                    <button onClick={() => copyToClipboard("curl -H 'X-API-Key: YOUR_KEY' https://ai-feast-engine.app/api/feed?lang=en")} className="text-xs text-neon-cyan hover:underline">Copy</button>
+                    <button onClick={() => copyToClipboard("curl -H 'X-API-Key: YOUR_KEY' https://ai-feast-engine.onrender.com/api/feed?lang=en")} className="text-xs text-neon-cyan hover:underline">Copy</button>
                   </div>
                   <pre className="p-6 text-xs font-mono text-gray-300 overflow-x-auto bg-black/20">
-                    {`curl -X GET "https://ai-feast-engine.app/api/feed?lang=en" \\
+                    {`curl -X GET "https://ai-feast-engine.onrender.com/api/feed?lang=en" \\
   -H "X-API-Key: YOUR_API_KEY"`}
                   </pre>
                 </div>
@@ -153,7 +153,7 @@ export default function Docs() {
                     <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">JavaScript (Fetch)</span>
                   </div>
                   <pre className="p-6 text-xs font-mono text-gray-300 overflow-x-auto bg-black/20">
-                    {`const response = await fetch('https://ai-feast-engine.app/api/feed?lang=pt', {
+                    {`const response = await fetch('https://ai-feast-engine.onrender.com/api/feed?lang=pt', {
   headers: {
     'X-API-Key': 'YOUR_API_KEY'
   }
@@ -170,7 +170,7 @@ console.log(data.posts);`}
                   <pre className="p-6 text-xs font-mono text-gray-300 overflow-x-auto bg-black/20">
                     {`import requests
 
-url = "https://ai-feast-engine.app/api/feed"
+url = "https://ai-feast-engine.onrender.com/api/feed"
 headers = {"X-API-Key": "YOUR_API_KEY"}
 params = {"lang": "en", "limit": 10}
 
