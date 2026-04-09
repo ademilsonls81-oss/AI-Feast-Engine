@@ -1,17 +1,19 @@
 import rateLimit from "express-rate-limit";
 import { createClient } from "@supabase/supabase-js";
 
-// Initialize Supabase for middleware (Service Role to bypass RLS)
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || "",
   process.env.SUPABASE_SERVICE_ROLE_KEY || ""
 );
 
-/**
- * Global Rate Limit: 100 requests per minute per IP
- */
+function getIp(req: Request): string {
+  return (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() 
+    || (req.headers["x-real-ip"] as string)
+    || "unknown";
+}
+
 export const globalIpLimit = rateLimit({
-  windowMs: 60 * 1000, // 1 minute
+  windowMs: 60 * 1000,
   max: Number(process.env.GLOBAL_RATE_LIMIT) || 100,
   message: { 
     error: "Too many requests from this IP",
@@ -19,32 +21,30 @@ export const globalIpLimit = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: (req) => getIp(req as any),
 });
 
-/**
- * API Key Rate Limit: Dynamic based on user plan
- * Free: 10 req/min
- * Pro: 100 req/min
- */
 export const apiKeyRateLimit = rateLimit({
-  windowMs: 60 * 1000, // 1 minute
+  windowMs: 60 * 1000,
   keyGenerator: (req) => {
-    return (req.header("X-API-Key") || req.query.key || req.ip) as string;
+    const apiKey = (req.header("X-API-Key") || (req.query as any).key) as string;
+    if (apiKey) return apiKey;
+    return getIp(req as any);
   },
   max: async (req) => {
-    const apiKey = req.header("X-API-Key") || req.query.key;
-    if (!apiKey) return 10; // Default to free limit for identification
+    const apiKey = (req.header("X-API-Key") || (req.query as any).key) as string;
+    if (!apiKey) return 10;
 
     try {
       const { data, error } = await supabase
         .from("users")
         .select("rate_limit")
-        .eq("api_key", apiKey)
+        .eq("api_key", apiKey as string)
         .single();
       
       if (error || !data) return 10;
       return data.rate_limit;
-    } catch (err) {
+    } catch {
       return 10;
     }
   },

@@ -214,6 +214,19 @@ setInterval(async () => {
 
 app.get("/api/health", (req, res) => res.json({ status: "alive" }));
 
+// Stats Endpoint
+app.get("/api/stats", async (req, res) => {
+  const [{ count: postsCount }, { count: feedsCount }] = await Promise.all([
+    supabase.from("posts").select("*", { count: "exact", head: true }).eq("status", "published"),
+    supabase.from("feeds").select("*", { count: "exact", head: true })
+  ]);
+  res.json({ 
+    postsCount: postsCount || 0, 
+    feedsCount: feedsCount || 0, 
+    languages: 11 
+  });
+});
+
 // User API: Feed
 app.get("/api/feed", apiKeyRateLimit, async (req, res) => {
   const apiKey = req.header("X-API-Key") || req.query.key;
