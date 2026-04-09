@@ -1,7 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import OpenAI from "openai";
 
-// Configura??es de performance
 const MAX_CONCURRENT_POSTS = Number(process.env.MAX_CONCURRENT_POSTS) || 3;
 const BATCH_DELAY_MS = Number(process.env.BATCH_DELAY_MS) || 3000;
 
@@ -13,14 +12,13 @@ class QueueService {
     process.env.SUPABASE_SERVICE_ROLE_KEY || ""
   );
   
-  // Conex?o com OpenRouter
   private openai = new OpenAI({
     baseURL: "https://openrouter.ai/api/v1",
     apiKey: process.env.OPENROUTER_API_KEY || "",
   });
 
   constructor() {
-    console.log(`[QueueService] Ativo. Concorr?ncia: ${MAX_CONCURRENT_POSTS}, Delay: ${BATCH_DELAY_MS}ms`);
+    console.log(`[QueueService] Inicializado. Concorrência: ${MAX_CONCURRENT_POSTS}, Delay: ${BATCH_DELAY_MS}ms`);
   }
 
   public addTasks(postIds: string[]) {
@@ -57,7 +55,7 @@ class QueueService {
       .eq("id", postId)
       .single();
 
-    if (fetchError || !post) throw new Error(`Post ${postId} n?o encontrado`);
+    if (fetchError || !post) throw new Error(`Post ${postId} não encontrado`);
 
     const result = await this.processWithOpenRouter(post);
 
@@ -75,31 +73,30 @@ class QueueService {
       status: "published"
     }).eq("id", postId);
 
-    console.log(`[QueueService] Publicado: ${post.title}`);
+    console.log(`[QueueService] Processado: ${post.title}`);
   }
 
   private async processWithOpenRouter(post: any) {
     const sourceText = post.content_raw || post.title;
     
-    const prompt = `Voc? ? um motor de processamento de not?cias de alta performance.
-Resuma o seguinte conte?do em portugu?s (m?ximo 3 par?grafos).
-Forne?a tradu??es do resumo para: en, es, fr, de, it, ja, ko, zh, ru, ar.
+    const prompt = `Você é um motor de processamento de notícias de alta performance.
+Resuma o seguinte conteúdo em português (máximo 3 parágrafos).
+Forneça traduções do resumo para: en, es, fr, de, it, ja, ko, zh, ru, ar.
 
-Retorne APENAS um JSON v?lido:
+Retorne APENAS um JSON válido:
 {
   "summary": "resumo em pt",
   "translations": { "en": "...", "es": "...", "fr": "...", "de": "...", "it": "...", "ja": "...", "ko": "...", "zh": "...", "ru": "...", "ar": "..." }
 }
 
-Conte?do:
-T?tulo: ${post.title}
+Conteúdo:
+Título: ${post.title}
 Corpo: ${sourceText}`;
 
     try {
       const completion = await this.openai.chat.completions.create({
         model: "google/gemma-3-27b-it:free",
         messages: [{ role: "user", content: prompt }],
-        response_format: { type: "json_object" },
       });
       
       const responseText = completion.choices[0].message.content || "{}";
