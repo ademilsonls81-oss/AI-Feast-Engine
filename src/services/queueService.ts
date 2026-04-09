@@ -97,7 +97,7 @@ Corpo: ${sourceText}`;
 
     try {
       const completion = await this.openai.chat.completions.create({
-        model: "openrouter/auto",
+        model: "google/gemma-3-27b-it:free",
         messages: [{ role: "user", content: prompt }],
         response_format: { type: "json_object" },
       });
