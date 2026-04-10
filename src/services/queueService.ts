@@ -2,7 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import OpenAI from "openai";
 
 const MAX_CONCURRENT_POSTS = Number(process.env.MAX_CONCURRENT_POSTS) || 1;
-const BATCH_DELAY_MS = Number(process.env.BATCH_DELAY_MS) || 5000;
+const BATCH_DELAY_MS = Number(process.env.BATCH_DELAY_MS) || 15000;
 const MAX_RETRIES = 3;
 
 class QueueService {
@@ -97,7 +97,7 @@ Corpo: ${sourceText}`;
     for (let retry = 0; retry < MAX_RETRIES; retry++) {
       try {
         const completion = await this.openai.chat.completions.create({
-          model: "google/gemma-3-27b-it:free",
+          model: "meta-llama/llama-3.2-3b-instruct",
           messages: [{ role: "user", content: prompt }],
         });
         
