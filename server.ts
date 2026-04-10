@@ -51,8 +51,7 @@ const allowedOrigins = [
   "https://aifeastengine.com",
   "https://www.aifeastengine.com",
   "https://api.aifeastengine.com",
-  "https://ai-feast-engine.vercel.app",
-  /\.vercel\.app$/,
+  /\.aifeastengine\.com$/,
   /\.onrender\.com$/
 ];
 
@@ -277,13 +276,52 @@ app.post("/api/user/rotate-key", async (req, res) => {
   if (!authHeader) return res.status(401).json({ error: "Unauthorized" });
 
   const token = authHeader.replace("Bearer ", "");
-  const { data: { user } } = await supabase.auth.getUser(token);
-  if (!user) return res.status(401).json({ error: "Unauthorized" });
+  const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+  
+  if (authError || !user) {
+    console.error("Rotate key auth error:", authError?.message);
+    return res.status(401).json({ error: "Unauthorized" });
+  }
 
+  // Gera nova chave
   const newKey = "af_" + crypto.randomBytes(24).toString("hex");
-  const { error } = await supabase.from("users").update({ api_key: newKey }).eq("id", user.id);
+  
+  // Verifica se o usuário existe na tabela users
+  const { data: existingUser } = await supabase
+    .from("users")
+    .select("id")
+    .eq("id", user.id)
+    .single();
+  
+  let updateError;
+  
+  if (existingUser) {
+    // Usuário existe, só atualiza a chave
+    const { error } = await supabase
+      .from("users")
+      .update({ api_key: newKey })
+      .eq("id", user.id);
+    updateError = error;
+  } else {
+    // Usuário não existe, cria registro
+    const { error } = await supabase
+      .from("users")
+      .insert({
+        id: user.id,
+        email: user.email,
+        api_key: newKey,
+        plan: "free",
+        usage_count: 0
+      });
+    updateError = error;
+  }
 
-  if (error) return res.status(500).json({ error: "Failed to rotate key" });
+  if (updateError) {
+    console.error("Rotate key DB error:", updateError.message);
+    return res.status(500).json({ error: "Failed to generate API key: " + updateError.message });
+  }
+  
+  console.log(`API key generated/rotated for user ${user.email}`);
   res.json({ api_key: newKey });
 });
 

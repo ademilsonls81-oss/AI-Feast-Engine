@@ -1,0 +1,42 @@
+{
+  "monitors": [
+    {
+      "name": "AI Feast Engine - Backend API",
+      "url": "https://ai-feast-engine.onrender.com/api/health",
+      "interval_minutes": 5,
+      "timeout_seconds": 30,
+      "expected_status": 200,
+      "expected_body_contains": "alive",
+      "alert_email": true,
+      "description": "Mantém Render ativo e monitora saúde da API"
+    },
+    {
+      "name": "AI Feast Engine - Custom Domain API",
+      "url": "https://api.aifeastengine.com/api/health",
+      "interval_minutes": 5,
+      "timeout_seconds": 30,
+      "expected_status": 200,
+      "expected_body_contains": "alive",
+      "alert_email": true,
+      "description": "Monitor do domínio customizado da API",
+      "status": "PENDENTE - Aguardar SSL no Render"
+    },
+    {
+      "name": "AI Feast Engine - Frontend",
+      "url": "https://www.aifeastengine.com",
+      "interval_minutes": 5,
+      "timeout_seconds": 30,
+      "expected_status": 200,
+      "alert_email": true,
+      "description": "Monitor do frontend Vercel",
+      "status": "PENDENTE - Aguardar domínio na Vercel"
+    }
+  ],
+  "setup_instructions": {
+    "step_1": "Acesse https://uptimerobot.com e crie conta grátis",
+    "step_2": "Clique em 'Add New Monitor'",
+    "step_3": "Use os valores de cada monitor acima",
+    "step_4": "Configure alerta por email para os monitores",
+    "note": "O intervalo de 5 minutos evita que o Render entre em sleep mode"
+  }
+}

@@ -9,7 +9,12 @@
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "setup:env": "node scripts/setup-env.js",
+    "audit:security": "node scripts/security-audit.js",
+    "monitor:uptime": "node scripts/uptime-monitor.js",
+    "test:production": "node scripts/production-test.js",
+    "test:api": "node scripts/test-api.js"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
