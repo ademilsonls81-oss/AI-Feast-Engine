@@ -94,32 +94,42 @@ class QueueService {
     const rawContent = post.content_raw || post.title || "";
     const sourceText = rawContent.length > 3000 ? rawContent.substring(0, 3000) + "..." : rawContent;
     
-    const prompt = `Responda APENAS com JSON válido, sem texto antes ou depois.
+    const prompt = `Summarize this news article in Portuguese (max 3 paragraphs). Also provide translations in: en, es, fr, de, it, ja, ko, zh, ru, ar.
 
-Resuma em português (máx 2 parágrafos). Traduza para: en,es,fr,de,it,ja,ko,zh,ru,ar.
+IMPORTANT: Respond with ONLY this JSON structure, no other text:
+{"summary": "resumo aqui", "translations": {"en": "...", "es": "...", "fr": "...", "de": "...", "it": "...", "ja": "...", "ko": "...", "zh": "...", "ru": "...", "ar": "..."}}
 
-Retorne JSON:
-{"summary":"resumo pt","translations":{"en":"...","es":"...","fr":"...","de":"...","it":"...","ja":"...","ko":"...","zh":"...","ru":"...","ar":"..."}}
-
-NÃO inclua explicações, apenas o JSON.
-
-Título: ${post.title}
-Conteúdo: ${sourceText}`;
+Title: ${post.title}
+Content: ${sourceText}`;
 
     for (let retry = 0; retry < MAX_RETRIES; retry++) {
       try {
         const completion = await this.openai.chat.completions.create({
-          model: "llama-3.3-70b-versatile",
+          model: "llama-3.1-8b-instant",
           messages: [{ role: "user", content: prompt }],
           response_format: { type: "json_object" }
         });
         
-        const responseText = completion.choices[0].message.content || "{}";
-        const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          return JSON.parse(jsonMatch[0]);
+        const responseText = completion.choices[0].message.content || "";
+        
+        let jsonStr = responseText.trim();
+        const firstBrace = jsonStr.indexOf('{');
+        const lastBrace = jsonStr.lastIndexOf('}');
+        
+        if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+          jsonStr = jsonStr.substring(firstBrace, lastBrace + 1);
+          const parsed = JSON.parse(jsonStr);
+          if (parsed.summary && parsed.translations) {
+            return parsed;
+          }
         }
-        return { error: "Invalid JSON response" };
+        
+        console.log(`[Groq] Invalid JSON response, retrying...`);
+        if (retry < MAX_RETRIES - 1) {
+          await new Promise(r => setTimeout(r, 1000));
+          continue;
+        }
+        return { error: "Invalid JSON response format" };
       } catch (err: any) {
         const is429 = err.message?.includes("429") || err.status === 429;
         if (is429 && retry < MAX_RETRIES - 1) {
