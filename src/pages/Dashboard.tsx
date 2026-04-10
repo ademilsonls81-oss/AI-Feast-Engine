@@ -226,7 +226,7 @@ export default function Dashboard() {
                 className="flex items-center gap-2 px-4 py-2 bg-neon-purple/20 hover:bg-neon-purple/30 text-neon-purple border border-neon-purple/30 rounded-lg text-xs font-bold transition-all hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <RefreshCw className={`w-4 h-4 ${isRotating ? 'animate-spin' : ''}`} /> 
-                {isRotating ? 'Generating...' : '🔑 Generate API Key'}
+                {isRotating ? 'Generating...' : 'Generate API Key'}
               </button>
             </div>
             

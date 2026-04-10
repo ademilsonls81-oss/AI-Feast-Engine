@@ -153,10 +153,43 @@ async function runIngestion() {
     const { data: feeds } = await supabase.from("feeds").select("*");
     if (!feeds) return;
 
+    // Balancear categorias: verificar quantos posts cada categoria tem
+    const { data: categoryCounts } = await supabase
+      .from("posts")
+      .select("category")
+      .then(result => {
+        if (!result.data) return {};
+        const counts: Record<string, number> = {};
+        result.data.forEach((p: any) => {
+          const cat = p.category || "General";
+          counts[cat] = (counts[cat] || 0) + 1;
+        });
+        return counts;
+      });
+
+    const minPostsPerCategory = 30; // Mínimo de posts por categoria
+    console.log(`>>> [RSS] Category counts:`, categoryCounts);
+
     for (const feed of feeds) {
       try {
+        const category = feed.category || "General";
+        const currentCount = categoryCounts[category] || 0;
+        
+        // Se categoria já tem muitos posts, pegar menos itens
+        // Se tem poucos, pegar mais itens para equilibrar
+        let itemsToFetch = 10;
+        if (currentCount > minPostsPerCategory * 3) {
+          itemsToFetch = 2; // Categoria saturada, pegar menos
+        } else if (currentCount > minPostsPerCategory * 2) {
+          itemsToFetch = 5;
+        } else if (currentCount < minPostsPerCategory) {
+          itemsToFetch = 20; // Categoria precisa de mais posts
+        }
+
+        console.log(`>>> [RSS] ${category}: ${currentCount} posts, fetching ${itemsToFetch} items`);
+
         const feedData = await parser.parseURL(feed.url);
-        for (const item of feedData.items.slice(0, 10)) {
+        for (const item of feedData.items.slice(0, itemsToFetch)) {
           const { data: exists } = await supabase.from("posts").select("id").eq("link", item.link).single();
           if (exists) continue;
 
@@ -168,12 +201,12 @@ async function runIngestion() {
             pub_date: item.pubDate ? new Date(item.pubDate).toISOString() : new Date().toISOString(),
             content_raw: rawContent,
             source_id: feed.id,
-            category: feed.category || "General",
+            category: category,
             status: "pending"
           });
 
           if (error) console.error(`Error inserting post: ${item.title}`, error.message);
-          else console.log(`Ingested: ${item.title}`);
+          else console.log(`Ingested [${category}]: ${item.title}`);
         }
       } catch (err: any) {
         console.error(`Failed to parse feed ${feed.url}: ${err.message}`);
