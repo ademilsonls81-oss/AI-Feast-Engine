@@ -57,11 +57,15 @@ export default function Dashboard() {
     setIsRotating(true);
     try {
       const token = (await supabase.auth.getSession()).data.session?.access_token;
-      await api.post("/api/user/rotate-key", {}, {
+      const res = await api.post("/api/user/rotate-key", {}, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      await refreshProfile();
-      alert("API Key rotated successfully!");
+      if (res.data.api_key) {
+        await refreshProfile();
+        alert("API Key rotated successfully!");
+      } else {
+        alert("Failed to rotate key");
+      }
     } catch (err) {
       alert("Failed to rotate key");
     } finally {
