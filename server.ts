@@ -4,17 +4,17 @@ import { createServer as createViteServer } from "vite";
 import path from "path";
 import { fileURLToPath } from "url";
 import cors from "cors";
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import Parser from "rss-parser";
 import { createClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
-import { queueService } from "./src/services/queueService";
+import { queueService } from "./src/services/queueService.js";
 import { NextFunction, Request, Response } from "express";
-import { globalIpLimit, apiKeyRateLimit } from "./src/middleware/rateLimit";
-import { logAuditAction } from "./src/middleware/auditLog";
+import { globalIpLimit, apiKeyRateLimit } from "./src/middleware/rateLimit.js";
+import { logAuditAction } from "./src/middleware/auditLog.js";
 import crypto from "crypto";
 
 console.log(">>> AI FEAST ENGINE SERVER STARTING...");
+console.log(">>> QueueService imported successfully");
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -37,7 +37,6 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "sk_test_mock", {
 });
 
 // Initialize Gemini
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "YOUR_API_KEY");
 const parser = new Parser({
   customFields: {
     item: [["content:encoded", "contentEncoded"]],
@@ -204,12 +203,23 @@ async function runIngestion() {
 
 // Intervals
 setInterval(runIngestion, 30 * 60 * 1000); // 30 min
+
+console.log(">>> [AutoQueue] Starting interval...");
 setInterval(async () => {
   console.log(">>> [AutoQueue] Verificando posts pendentes...");
-  const { data: pending } = await supabase.from("posts").select("id").eq("status", "pending").limit(20);
-  console.log(`>>> [AutoQueue] Posts pendentes encontrados: ${pending?.length || 0}`);
-  if (pending && pending.length > 0) {
-    queueService.addTasks(pending.map(p => p.id));
+  try {
+    const { data: pending, error } = await supabase.from("posts").select("id").eq("status", "pending").limit(20);
+    if (error) {
+      console.error(">>> [AutoQueue] Erro ao buscar posts:", error.message);
+      return;
+    }
+    console.log(`>>> [AutoQueue] Posts pendentes encontrados: ${pending?.length || 0}`);
+    if (pending && pending.length > 0) {
+      console.log(">>> [AutoQueue] Chamando queueService.addTasks...");
+      queueService.addTasks(pending.map(p => p.id));
+    }
+  } catch (err: any) {
+    console.error(">>> [AutoQueue] Erro:", err.message);
   }
 }, 5 * 60 * 1000); // 5 min auto-batch
 
