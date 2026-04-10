@@ -114,7 +114,8 @@ const allowedOrigins = [
   "https://www.aifeastengine.com",
   "https://api.aifeastengine.com",
   "https://ai-feast-engine.vercel.app",
-  /\.vercel\.app$/ // Allow Vercel preview deployments
+  /\.vercel\.app$/,
+  /\.onrender\.com$/
 ];
 
 app.use(cors({
@@ -124,6 +125,7 @@ app.use(cors({
     if (allowedOrigins.some(ao => (typeof ao === 'string' ? ao === origin : ao.test(origin)))) {
       return callback(null, true);
     }
+    console.log(`[CORS] Blocked origin: ${origin}`);
     callback(new Error("Not allowed by CORS"));
   },
   credentials: true
