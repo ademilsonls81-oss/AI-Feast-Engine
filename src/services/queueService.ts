@@ -78,21 +78,16 @@ class QueueService {
   }
 
   private async processWithOpenRouter(post: any) {
-    const sourceText = post.content_raw || post.title;
+    const rawContent = post.content_raw || post.title || "";
+    const sourceText = rawContent.length > 3000 ? rawContent.substring(0, 3000) + "..." : rawContent;
     
-    const prompt = `Você é um motor de processamento de notícias de alta performance.
-Resuma o seguinte conteúdo em português (máximo 3 parágrafos).
-Forneça traduções do resumo para: en, es, fr, de, it, ja, ko, zh, ru, ar.
+    const prompt = `Resuma em português (máx 2 parágrafos). Traduza para: en,es,fr,de,it,ja,ko,zh,ru,ar.
 
-Retorne APENAS um JSON válido:
-{
-  "summary": "resumo em pt",
-  "translations": { "en": "...", "es": "...", "fr": "...", "de": "...", "it": "...", "ja": "...", "ko": "...", "zh": "...", "ru": "...", "ar": "..." }
-}
+Retorne JSON:
+{"summary":"resumo pt","translations":{"en":"...","es":"...","fr":"...","de":"...","it":"...","ja":"...","ko":"...","zh":"...","ru":"...","ar":"..."}}
 
-Conteúdo:
 Título: ${post.title}
-Corpo: ${sourceText}`;
+Conteúdo: ${sourceText}`;
 
     for (let retry = 0; retry < MAX_RETRIES; retry++) {
       try {
