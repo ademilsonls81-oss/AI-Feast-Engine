@@ -14,8 +14,8 @@ class QueueService {
   );
   
   private openai = new OpenAI({
-    baseURL: "https://openrouter.ai/api/v1",
-    apiKey: process.env.OPENROUTER_API_KEY || "",
+    baseURL: "https://api.groq.com/openai/v1",
+    apiKey: process.env.GROQ_API_KEY || "",
   });
 
   constructor() {
@@ -97,7 +97,7 @@ Corpo: ${sourceText}`;
     for (let retry = 0; retry < MAX_RETRIES; retry++) {
       try {
         const completion = await this.openai.chat.completions.create({
-          model: "meta-llama/llama-3.2-3b-instruct",
+          model: "llama-3.3-70b-versatile",
           messages: [{ role: "user", content: prompt }],
         });
         
@@ -107,11 +107,11 @@ Corpo: ${sourceText}`;
         const is429 = err.message?.includes("429") || err.status === 429;
         if (is429 && retry < MAX_RETRIES - 1) {
           const waitTime = Math.pow(2, retry) * 2000;
-          console.log(`[OpenRouter] Rate limited, retry in ${waitTime/1000}s...`);
+          console.log(`[Groq] Rate limited, retry in ${waitTime/1000}s...`);
           await new Promise(r => setTimeout(r, waitTime));
           continue;
         }
-        console.error(`[OpenRouter Error] ${err.message}`);
+        console.error(`[Groq Error] ${err.message}`);
         return { error: err.message };
       }
     }
