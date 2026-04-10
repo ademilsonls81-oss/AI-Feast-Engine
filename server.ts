@@ -19,7 +19,6 @@ console.log(">>> QueueService imported successfully");
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Initialize Supabase Admin (Service Role)
 const supabaseUrl = process.env.VITE_SUPABASE_URL || "";
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 
@@ -31,12 +30,10 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey, {
   auth: { autoRefreshToken: false, persistSession: false }
 });
 
-// Initialize Stripe
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "sk_test_mock", {
   apiVersion: "2025-01-27.acacia" as any,
 });
 
-// Initialize Gemini
 const parser = new Parser({
   customFields: {
     item: [["content:encoded", "contentEncoded"]],
@@ -46,11 +43,35 @@ const parser = new Parser({
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
 
-// Apply CORS & Trust Proxy for rate limiter (IPv6 support)
 app.set("trust proxy", 1);
-app.use(cors());
 
-// Special handling for Stripe Webhook (needs raw body)
+const allowedOrigins = [
+  "http://localhost:5173",
+  "http://localhost:3000",
+  "https://aifeastengine.com",
+  "https://www.aifeastengine.com",
+  "https://api.aifeastengine.com",
+  "https://ai-feast-engine.vercel.app",
+  /\.vercel\.app$/,
+  /\.onrender\.com$/
+];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.some(ao => (typeof ao === 'string' ? ao === origin : ao.test(origin)))) {
+      return callback(null, true);
+    }
+    console.log(`[CORS] Blocked origin: ${origin}`);
+    callback(new Error("Not allowed by CORS"));
+  },
+  credentials: true
+}));
+
+app.use(express.json());
+app.use(globalIpLimit);
+
+// Stripe Webhook
 app.post("/api/stripe-webhook", express.raw({ type: "application/json" }), async (req, res) => {
   const sig = req.headers["stripe-signature"];
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
@@ -73,16 +94,13 @@ app.post("/api/stripe-webhook", express.raw({ type: "application/json" }), async
       const session = event.data.object as any;
       const userId = session.client_reference_id;
       const customerId = session.customer;
-      
       console.log(`💰 Payment success: User ${userId}, Customer ${customerId}`);
-      
       await supabase.from("users").update({ 
         plan: "pro", 
         stripe_customer_id: customerId,
-        rate_limit: 100 // Upgrade rate limit for Pro
+        rate_limit: 100
       }).eq("id", userId);
       break;
-
     case "customer.subscription.deleted":
       const subscription = event.data.object as any;
       const { data: userToDowngrade } = await supabase
@@ -90,7 +108,6 @@ app.post("/api/stripe-webhook", express.raw({ type: "application/json" }), async
         .select("id")
         .eq("stripe_customer_id", subscription.customer)
         .single();
-      
       if (userToDowngrade) {
         await supabase.from("users").update({ 
           plan: "free", 
@@ -99,47 +116,15 @@ app.post("/api/stripe-webhook", express.raw({ type: "application/json" }), async
         console.log(`📉 User ${userToDowngrade.id} downgraded to Free.`);
       }
       break;
-
     default:
       console.log(`Unhandled event type ${event.type}`);
   }
   res.json({ received: true });
 });
 
-// Configure CORS
-const allowedOrigins = [
-  "http://localhost:5173",
-  "http://localhost:3000",
-  "https://aifeastengine.com",
-  "https://www.aifeastengine.com",
-  "https://api.aifeastengine.com",
-  "https://ai-feast-engine.vercel.app",
-  /\.vercel\.app$/,
-  /\.onrender\.com$/
-];
-
-app.use(cors({
-  origin: (origin, callback) => {
-    // allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.some(ao => (typeof ao === 'string' ? ao === origin : ao.test(origin)))) {
-      return callback(null, true);
-    }
-    console.log(`[CORS] Blocked origin: ${origin}`);
-    callback(new Error("Not allowed by CORS"));
-  },
-  credentials: true
-}));
-
-app.use(express.json());
-
-// Apply global rate limit to all routes
-app.use(globalIpLimit);
-
-// --- Admin Middleware ---
 async function checkAdmin(req: Request, res: Response, next: NextFunction) {
   const authHeader = req.header("Authorization");
-  const userId = req.header("X-User-Id"); // Fallback for some internal calls
+  const userId = req.header("X-User-Id");
   
   try {
     let internalId = userId;
@@ -163,7 +148,6 @@ async function checkAdmin(req: Request, res: Response, next: NextFunction) {
   }
 }
 
-// --- Ingestion Logic ---
 async function runIngestion() {
   console.log(">>> [RSS] Starting Ingestion at " + new Date().toISOString());
   try {
@@ -174,11 +158,9 @@ async function runIngestion() {
       try {
         const feedData = await parser.parseURL(feed.url);
         for (const item of feedData.items.slice(0, 10)) {
-          // Check if exists
           const { data: exists } = await supabase.from("posts").select("id").eq("link", item.link).single();
           if (exists) continue;
 
-          // Process content_raw
           const rawContent = (item as any).contentEncoded || item.content || item.contentSnippet || "";
 
           const { error } = await supabase.from("posts").insert({
@@ -203,8 +185,7 @@ async function runIngestion() {
   }
 }
 
-// Intervals
-setInterval(runIngestion, 30 * 60 * 1000); // 30 min
+setInterval(runIngestion, 30 * 60 * 1000);
 
 console.log(">>> [AutoQueue] Starting interval...");
 setInterval(async () => {
@@ -223,13 +204,10 @@ setInterval(async () => {
   } catch (err: any) {
     console.error(">>> [AutoQueue] Erro:", err.message);
   }
-}, 5 * 60 * 1000); // 5 min auto-batch
-
-// --- Routes ---
+}, 5 * 60 * 1000);
 
 app.get("/api/health", (req, res) => res.json({ status: "alive" }));
 
-// Stats Endpoint
 app.get("/api/stats", async (req, res) => {
   const [{ count: postsCount }, { count: feedsCount }] = await Promise.all([
     supabase.from("posts").select("*", { count: "exact", head: true }).eq("status", "published"),
@@ -242,7 +220,6 @@ app.get("/api/stats", async (req, res) => {
   });
 });
 
-// User API: Feed
 app.get("/api/feed", apiKeyRateLimit, async (req, res) => {
   const apiKey = req.header("X-API-Key") || req.query.key;
   if (!apiKey) return res.status(401).json({ error: "API Key required" });
@@ -254,7 +231,6 @@ app.get("/api/feed", apiKeyRateLimit, async (req, res) => {
     return res.status(429).json({ error: "Free limit reached (100/mo)" });
   }
 
-  // Update usage and log
   await supabase.from("users").update({ usage_count: user.usage_count + 1 }).eq("id", user.id);
   await supabase.from("usage_logs").insert({
     user_id: user.id,
@@ -266,7 +242,6 @@ app.get("/api/feed", apiKeyRateLimit, async (req, res) => {
   res.json({ posts: posts || [] });
 });
 
-// User API: Rotate Key
 app.post("/api/user/rotate-key", async (req, res) => {
   const authHeader = req.header("Authorization");
   if (!authHeader) return res.status(401).json({ error: "Unauthorized" });
@@ -282,14 +257,12 @@ app.post("/api/user/rotate-key", async (req, res) => {
   res.json({ api_key: newKey });
 });
 
-// Admin API: List Posts
 app.get("/api/admin/posts", checkAdmin, async (req, res) => {
   const { data, error } = await supabase.from("posts").select("*").order("created_at", { ascending: false }).limit(100);
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
 
-// Admin API: Process Batch
 app.post("/api/admin/process-batch", checkAdmin, async (req, res) => {
   const { data: pending } = await supabase.from("posts").select("id").eq("status", "pending").limit(50);
   if (!pending?.length) return res.json({ message: "No pending posts" });
@@ -299,7 +272,6 @@ app.post("/api/admin/process-batch", checkAdmin, async (req, res) => {
   res.json({ message: `Queueing ${pending.length} posts` });
 });
 
-// Admin API: Manage Feeds
 app.post("/api/admin/feeds", checkAdmin, async (req, res) => {
   const { name, url, category } = req.body;
   const { data, error } = await supabase.from("feeds").insert({ name, url, category }).select().single();
@@ -308,7 +280,6 @@ app.post("/api/admin/feeds", checkAdmin, async (req, res) => {
   res.json(data);
 });
 
-// Stripe Checkout
 app.post("/api/create-checkout-session", async (req, res) => {
   const { userId, email } = req.body;
   if (!userId || !email) return res.status(400).json({ error: "Missing data" });
@@ -330,7 +301,6 @@ app.post("/api/create-checkout-session", async (req, res) => {
   }
 });
 
-// Static / Vite
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({ server: { middlewareMode: true }, appType: "spa" });
@@ -343,7 +313,7 @@ async function startServer() {
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`>>> Server running at http://localhost:${PORT}`);
-    runIngestion(); // Fetch immediately on startup
+    runIngestion();
   });
 }
 
