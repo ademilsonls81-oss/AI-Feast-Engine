@@ -1,15 +1,16 @@
 import React, { useEffect, useState } from "react";
 import { motion } from "motion/react";
+import { Link } from "react-router-dom";
 import { Zap, Shield, Globe, Database, ArrowRight, CheckCircle2 } from "lucide-react";
 import { signInWithGoogle } from "../lib/supabaseClient";
-import axios from "axios";
+import api from "../lib/api";
 import { cn } from "../lib/utils";
 
 export default function Landing() {
   const [stats, setStats] = useState({ postsCount: 0, feedsCount: 0, languages: 11 });
 
   useEffect(() => {
-    axios.get("/api/stats").then(res => setStats(res.data)).catch(console.error);
+    api.get("/api/stats").then(res => setStats(res.data)).catch(console.error);
   }, []);
 
   return (
@@ -46,9 +47,9 @@ export default function Landing() {
               >
                 Get Started Free <ArrowRight className="w-5 h-5" />
               </button>
-              <button className="w-full sm:w-auto px-8 py-4 bg-white/5 border border-white/10 hover:bg-white/10 rounded-full font-bold transition-all">
+              <Link to="/docs" className="w-full sm:w-auto px-8 py-4 bg-white/5 border border-white/10 hover:bg-white/10 rounded-full font-bold transition-all">
                 View Documentation
-              </button>
+              </Link>
             </div>
           </motion.div>
 
