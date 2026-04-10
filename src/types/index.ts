@@ -27,8 +27,9 @@ export interface Post {
   translations: Record<string, string>;
   source_id: string;
   category: string;
-  status: 'pending' | 'processing' | 'published' | 'error';
+  status: 'pending' | 'processing' | 'published' | 'error' | 'failed';
   error_message?: string;
+  retry_count?: number;
   created_at: string;
   content_raw?: string;
 }

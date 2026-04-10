@@ -59,19 +59,32 @@ class QueueService {
     if (fetchError || !post) throw new Error(`Post ${postId} não encontrado`);
 
     const result = await this.processWithOpenRouter(post);
+    const retryCount = (post.retry_count || 0) + 1;
 
     if (result.error) {
-      await this.supabase.from("posts").update({
-        status: "error",
-        error_message: result.error
-      }).eq("id", postId);
+      if (retryCount >= 3) {
+        await this.supabase.from("posts").update({
+          status: "failed",
+          error_message: result.error,
+          retry_count: retryCount
+        }).eq("id", postId);
+        console.log(`[QueueService] Post ${postId} falhou definitivamente após ${retryCount} tentativas`);
+      } else {
+        await this.supabase.from("posts").update({
+          status: "pending",
+          error_message: result.error,
+          retry_count: retryCount
+        }).eq("id", postId);
+        console.log(`[QueueService] Post ${postId} marcado para retry (${retryCount}/3)`);
+      }
       return;
     }
 
     await this.supabase.from("posts").update({
       summary: result.summary,
       translations: result.translations,
-      status: "published"
+      status: "published",
+      retry_count: retryCount
     }).eq("id", postId);
 
     console.log(`[QueueService] Processado: ${post.title}`);
@@ -81,10 +94,14 @@ class QueueService {
     const rawContent = post.content_raw || post.title || "";
     const sourceText = rawContent.length > 3000 ? rawContent.substring(0, 3000) + "..." : rawContent;
     
-    const prompt = `Resuma em português (máx 2 parágrafos). Traduza para: en,es,fr,de,it,ja,ko,zh,ru,ar.
+    const prompt = `Responda APENAS com JSON válido, sem texto antes ou depois.
+
+Resuma em português (máx 2 parágrafos). Traduza para: en,es,fr,de,it,ja,ko,zh,ru,ar.
 
 Retorne JSON:
 {"summary":"resumo pt","translations":{"en":"...","es":"...","fr":"...","de":"...","it":"...","ja":"...","ko":"...","zh":"...","ru":"...","ar":"..."}}
+
+NÃO inclua explicações, apenas o JSON.
 
 Título: ${post.title}
 Conteúdo: ${sourceText}`;
@@ -94,10 +111,15 @@ Conteúdo: ${sourceText}`;
         const completion = await this.openai.chat.completions.create({
           model: "llama-3.3-70b-versatile",
           messages: [{ role: "user", content: prompt }],
+          response_format: { type: "json_object" }
         });
         
         const responseText = completion.choices[0].message.content || "{}";
-        return JSON.parse(responseText);
+        const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          return JSON.parse(jsonMatch[0]);
+        }
+        return { error: "Invalid JSON response" };
       } catch (err: any) {
         const is429 = err.message?.includes("429") || err.status === 429;
         if (is429 && retry < MAX_RETRIES - 1) {

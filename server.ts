@@ -206,6 +206,36 @@ setInterval(async () => {
   }
 }, 5 * 60 * 1000);
 
+console.log(">>> [RetryHandler] Starting interval...");
+setInterval(async () => {
+  console.log(">>> [RetryHandler] Verificando posts com erro...");
+  try {
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const { data: errorPosts, error } = await supabase
+      .from("posts")
+      .select("id, retry_count")
+      .eq("status", "error")
+      .lt("updated_at", oneHourAgo)
+      .lt("retry_count", 3)
+      .limit(10);
+    
+    if (error) {
+      console.error(">>> [RetryHandler] Erro ao buscar posts:", error.message);
+      return;
+    }
+    
+    console.log(`>>> [RetryHandler] Posts com erro para retry: ${errorPosts?.length || 0}`);
+    
+    if (errorPosts && errorPosts.length > 0) {
+      const idsToRetry = errorPosts.map(p => p.id);
+      await supabase.from("posts").update({ status: "pending" }).in("id", idsToRetry);
+      console.log(`>>> [RetryHandler] Posts resetados para pending: ${idsToRetry.length}`);
+    }
+  } catch (err: any) {
+    console.error(">>> [RetryHandler] Erro:", err.message);
+  }
+}, 30 * 60 * 1000);
+
 app.get("/api/health", (req, res) => res.json({ status: "alive" }));
 
 app.get("/api/stats", async (req, res) => {
