@@ -1,0 +1,11 @@
+# AI Feast Engine - Robots.txt
+User-agent: *
+Allow: /
+
+# Sitemap
+Sitemap: https://www.aifeastengine.com/sitemap.xml
+
+# Disallow admin and private routes
+Disallow: /dashboard
+Disallow: /admin
+Disallow: /api/
