@@ -205,7 +205,9 @@ async function runIngestion() {
 // Intervals
 setInterval(runIngestion, 30 * 60 * 1000); // 30 min
 setInterval(async () => {
+  console.log(">>> [AutoQueue] Verificando posts pendentes...");
   const { data: pending } = await supabase.from("posts").select("id").eq("status", "pending").limit(20);
+  console.log(`>>> [AutoQueue] Posts pendentes encontrados: ${pending?.length || 0}`);
   if (pending && pending.length > 0) {
     queueService.addTasks(pending.map(p => p.id));
   }
