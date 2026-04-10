@@ -1,8 +1,9 @@
 import { createClient } from "@supabase/supabase-js";
 import OpenAI from "openai";
 
-const MAX_CONCURRENT_POSTS = Number(process.env.MAX_CONCURRENT_POSTS) || 3;
-const BATCH_DELAY_MS = Number(process.env.BATCH_DELAY_MS) || 3000;
+const MAX_CONCURRENT_POSTS = Number(process.env.MAX_CONCURRENT_POSTS) || 1;
+const BATCH_DELAY_MS = Number(process.env.BATCH_DELAY_MS) || 5000;
+const MAX_RETRIES = 3;
 
 class QueueService {
   private queue: string[] = [];
@@ -93,18 +94,28 @@ Conteúdo:
 Título: ${post.title}
 Corpo: ${sourceText}`;
 
-    try {
-      const completion = await this.openai.chat.completions.create({
-        model: "google/gemma-3-27b-it:free",
-        messages: [{ role: "user", content: prompt }],
-      });
-      
-      const responseText = completion.choices[0].message.content || "{}";
-      return JSON.parse(responseText);
-    } catch (err: any) {
-      console.error(`[OpenRouter Error] ${err.message}`);
-      return { error: err.message };
+    for (let retry = 0; retry < MAX_RETRIES; retry++) {
+      try {
+        const completion = await this.openai.chat.completions.create({
+          model: "google/gemma-3-27b-it:free",
+          messages: [{ role: "user", content: prompt }],
+        });
+        
+        const responseText = completion.choices[0].message.content || "{}";
+        return JSON.parse(responseText);
+      } catch (err: any) {
+        const is429 = err.message?.includes("429") || err.status === 429;
+        if (is429 && retry < MAX_RETRIES - 1) {
+          const waitTime = Math.pow(2, retry) * 2000;
+          console.log(`[OpenRouter] Rate limited, retry in ${waitTime/1000}s...`);
+          await new Promise(r => setTimeout(r, waitTime));
+          continue;
+        }
+        console.error(`[OpenRouter Error] ${err.message}`);
+        return { error: err.message };
+      }
     }
+    return { error: "Max retries exceeded" };
   }
 }
 
