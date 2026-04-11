@@ -613,25 +613,14 @@ app.post("/api/admin/skills/generate", checkAdminSecret, async (req, res) => {
 
     console.log(`[SkillGen] Gerando skill com prompt: ${prompt.substring(0, 100)}...`);
 
-    const systemPrompt = `You are a JSON API. Return ONLY valid JSON, no markdown, no explanation.`;
+    const userPrompt = `Create a NEW skill for: "${prompt}"
 
-    const userPrompt = `Create a skill for: "${prompt}"
+Current timestamp: ${Date.now()}
 
-Return ONLY this JSON object with ALL fields:
-{
-  "id":"snake_case_id",
-  "name":"Title",
-  "slug":"kebab-case",
-  "description":"one sentence max 100 chars",
-  "long_description":"two sentences max 200 chars",
-  "category":"development|content|automation|analysis|security",
-  "tags":["tag1","tag2","tag3"],
-  "risk_level":"low|medium|high",
-  "install_command":"npx aifeast slug",
-  "run_command":"npx aifeast run slug"
-}`;
+Return ONLY this JSON object with ALL fields (no markdown, no extra text):
+{"id":"snake_case","name":"Title","slug":"kebab","desc":"short","long_desc":"medium","category":"analysis","tags":["a","b","c"],"risk":"low","install":"npx aifeast x","run":"npx aifeast run x"}`;
 
-    // Chamar Groq
+    // Chamar Groq com llama-3.1-8b-instant (500K tokens/day)
     const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -639,13 +628,13 @@ Return ONLY this JSON object with ALL fields:
         "Authorization": `Bearer ${process.env.GROQ_API_KEY}`
       },
       body: JSON.stringify({
-        model: "groq/compound",
+        model: "llama-3.1-8b-instant",
         messages: [
-          { role: "system", content: systemPrompt },
+          { role: "system", content: "You are a JSON API. Return ONLY valid JSON." },
           { role: "user", content: userPrompt }
         ],
         response_format: { type: "json_object" },
-        temperature: 0.1,
+        temperature: 0.3,
         max_tokens: 1024
       })
     });
@@ -684,60 +673,57 @@ Return ONLY this JSON object with ALL fields:
       }
     }
 
-    // Validar campos obrigatórios (somente os que a IA gera)
-    const requiredFields = ['id', 'name', 'slug', 'description', 'long_description', 'category', 'tags', 'risk_level', 'install_command', 'run_command'];
-    const missingFields = requiredFields.filter(f => !skillJson[f]);
+    // Completar campos faltantes com defaults
+    if (!skillJson.output_schema) skillJson.output_schema = { type: "object", properties: { result: { type: "string" } } };
+    if (!skillJson.input_schema) skillJson.input_schema = { type: "object", properties: { input: { type: "string" } } };
+    if (!skillJson.code) skillJson.code = `// TODO: Implement ${skillJson.id || 'skill'}`;
 
-    if (missingFields.length > 0) {
+    // Mapear nomes do prompt para validação
+    const desc = skillJson.desc || skillJson.description;
+    const longDesc = skillJson.long_desc || skillJson.long_description;
+    const risk = skillJson.risk || skillJson.risk_level;
+    const install = skillJson.install || skillJson.install_command;
+    const run = skillJson.run || skillJson.run_command;
+
+    // Validar APENAS campos essenciais
+    if (!skillJson.id || !skillJson.name || !skillJson.slug) {
       return res.status(422).json({
-        error: "Skill gerada está incompleta",
-        missing: missingFields,
-        raw: responseText.substring(0, 500)
+        error: "Skill gerada está incompleta (faltam id, name ou slug)",
+        received_fields: Object.keys(skillJson)
       });
     }
 
     // Validar categoria
     const validCategories = ['development', 'content', 'automation', 'analysis', 'security'];
-    if (!validCategories.includes(skillJson.category)) {
-      return res.status(422).json({ error: "Categoria inválida", valid: validCategories });
-    }
+    const category = validCategories.includes(skillJson.category) ? skillJson.category : 'analysis';
 
     // Validar risk_level
     const validRisks = ['low', 'medium', 'high'];
-    if (!validRisks.includes(skillJson.risk_level)) {
-      return res.status(422).json({ error: "Risk level inválido", valid: validRisks });
-    }
+    const riskLevel = validRisks.includes(risk) ? risk : 'low';
 
-    // Gerar slug se não existir
-    if (!skillJson.slug) {
-      skillJson.slug = skillJson.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-    }
-
-    // Adicionar campos padrão que a IA não gera
-    skillJson.input_schema = { type: "object", properties: { input: { type: "string" } } };
-    skillJson.output_schema = { type: "object", properties: { output: { type: "string" } } };
-    skillJson.code = `// TODO: Implement ${skillJson.id || skillJson.name || 'skill'}`;
+    // Montar skill completa
+    const skill = {
+      id: skillJson.id,
+      name: skillJson.name,
+      slug: skillJson.slug,
+      description: desc || 'No description',
+      long_description: longDesc || desc || 'No detailed description',
+      category: category,
+      tags: Array.isArray(skillJson.tags) ? skillJson.tags.slice(0, 3) : ['skill'],
+      input_schema: skillJson.input_schema,
+      output_schema: skillJson.output_schema,
+      code: skillJson.code,
+      install_command: install || `npx aifeast ${skillJson.slug}`,
+      run_command: run || `npx aifeast run ${skillJson.slug}`,
+      risk_level: riskLevel,
+      verified: false,
+      is_active: true
+    };
 
     // Salvar no banco
     const { data: savedSkill, error: dbError } = await supabase
       .from("skills")
-      .insert({
-        id: skillJson.id,
-        name: skillJson.name,
-        slug: skillJson.slug,
-        description: skillJson.description,
-        long_description: skillJson.long_description,
-        category: skillJson.category,
-        tags: skillJson.tags,
-        input_schema: skillJson.input_schema,
-        output_schema: skillJson.output_schema,
-        code: skillJson.code,
-        install_command: skillJson.install_command,
-        run_command: skillJson.run_command,
-        risk_level: skillJson.risk_level,
-        verified: false,
-        is_active: true
-      })
+      .insert(skill)
       .select()
       .single();
 
