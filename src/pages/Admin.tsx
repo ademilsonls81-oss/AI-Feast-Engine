@@ -58,12 +58,22 @@ export default function Admin() {
   async function checkAdminRole(userId: string) {
     const { data, error } = await supabase
       .from('users')
-      .select('role')
+      .select('role, email')
       .eq('id', userId)
       .single();
-    
-    if (!error && data?.role === 'admin') {
+
+    if (error) {
+      console.error("Error checking admin role:", error.message);
+      return;
+    }
+
+    console.log(`User ${data?.email} has role: ${data?.role}`);
+
+    if (data?.role === 'admin') {
       setIsAdmin(true);
+      console.log("✅ Admin access granted");
+    } else {
+      console.log("❌ Access denied: role is", data?.role);
     }
   }
 
