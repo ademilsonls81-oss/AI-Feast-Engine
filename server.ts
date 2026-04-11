@@ -241,51 +241,97 @@ async function runIngestion() {
         return counts;
       });
 
-    const minPostsPerCategory = 30; // Mínimo de posts por categoria
+    // Configurar limites por categoria
+    const MAX_POSTS_PER_CATEGORY = 200; // Teto por categoria
+    const MIN_POSTS_PER_CATEGORY = 30; // Mínimo ideal
+    const TARGET_PER_CYCLE = 5; // Target de novos posts por feed por ciclo
+
     console.log(`>>> [RSS] Category counts:`, categoryCounts);
 
-    for (const feed of feeds) {
-      try {
-        const category = feed.category || "General";
-        const currentCount = categoryCounts[category] || 0;
-        
-        // Se categoria já tem muitos posts, pegar menos itens
-        // Se tem poucos, pegar mais itens para equilibrar
-        let itemsToFetch = 10;
-        if (currentCount > minPostsPerCategory * 3) {
-          itemsToFetch = 2; // Categoria saturada, pegar menos
-        } else if (currentCount > minPostsPerCategory * 2) {
-          itemsToFetch = 5;
-        } else if (currentCount < minPostsPerCategory) {
-          itemsToFetch = 20; // Categoria precisa de mais posts
+    // Agrupar feeds por categoria para balancear
+    const feedsByCategory: Record<string, typeof feeds> = {};
+    feeds.forEach(f => {
+      const cat = f.category || "General";
+      if (!feedsByCategory[cat]) feedsByCategory[cat] = [];
+      feedsByCategory[cat].push(f);
+    });
+
+    // Processar categorias com menos posts primeiro
+    const sortedCategories = Object.keys(feedsByCategory).sort((a, b) => {
+      const countA = categoryCounts[a] || 0;
+      const countB = categoryCounts[b] || 0;
+      return countA - countB; // Categorias com menos posts vêm primeiro
+    });
+
+    console.log(`>>> [RSS] Processing order: ${sortedCategories.join(', ')}`);
+
+    let totalIngested = 0;
+
+    for (const category of sortedCategories) {
+      const currentCount = categoryCounts[category] || 0;
+      const categoryFeeds = feedsByCategory[category];
+
+      // Se categoria já atingiu o teto, pular
+      if (currentCount >= MAX_POSTS_PER_CATEGORY) {
+        console.log(`>>> [RSS] ${category}: ${currentCount} posts (MAX reached, skipping)`);
+        continue;
+      }
+
+      // Calcular quantos items pegar por feed
+      let itemsPerFeed = TARGET_PER_CYCLE;
+      if (currentCount < MIN_POSTS_PER_CATEGORY) {
+        itemsPerFeed = 15; // Categoria precisa de mais conteúdo
+      } else if (currentCount > MAX_POSTS_PER_CATEGORY * 0.75) {
+        itemsPerFeed = 2; // Categoria quase cheia, pegar menos
+      }
+
+      console.log(`>>> [RSS] ${category}: ${currentCount} posts, ${itemsPerFeed} items/feed`);
+
+      for (const feed of categoryFeeds) {
+        try {
+          const feedData = await parser.parseURL(feed.url);
+          let ingestedThisFeed = 0;
+
+          for (const item of feedData.items.slice(0, itemsPerFeed)) {
+            // Verificar se post já existe
+            const { data: exists } = await supabase
+              .from("posts")
+              .select("id")
+              .eq("link", item.link)
+              .single();
+
+            if (exists) continue;
+
+            const rawContent = (item as any).contentEncoded || item.content || item.contentSnippet || "";
+
+            const { error } = await supabase.from("posts").insert({
+              title: item.title,
+              link: item.link,
+              pub_date: item.pubDate ? new Date(item.pubDate).toISOString() : new Date().toISOString(),
+              content_raw: rawContent,
+              source_id: feed.id,
+              category: category, // Usa a categoria do feed
+              status: "pending"
+            });
+
+            if (error) {
+              console.error(`Error inserting post: ${item.title}`, error.message);
+            } else {
+              ingestedThisFeed++;
+              totalIngested++;
+            }
+          }
+
+          if (ingestedThisFeed > 0) {
+            console.log(`>>> [RSS] Ingested ${ingestedThisFeed} posts from ${feed.name} [${category}]`);
+          }
+        } catch (err: any) {
+          console.error(`Failed to parse feed ${feed.url}: ${err.message}`);
         }
-
-        console.log(`>>> [RSS] ${category}: ${currentCount} posts, fetching ${itemsToFetch} items`);
-
-        const feedData = await parser.parseURL(feed.url);
-        for (const item of feedData.items.slice(0, itemsToFetch)) {
-          const { data: exists } = await supabase.from("posts").select("id").eq("link", item.link).single();
-          if (exists) continue;
-
-          const rawContent = (item as any).contentEncoded || item.content || item.contentSnippet || "";
-
-          const { error } = await supabase.from("posts").insert({
-            title: item.title,
-            link: item.link,
-            pub_date: item.pubDate ? new Date(item.pubDate).toISOString() : new Date().toISOString(),
-            content_raw: rawContent,
-            source_id: feed.id,
-            category: category,
-            status: "pending"
-          });
-
-          if (error) console.error(`Error inserting post: ${item.title}`, error.message);
-          else console.log(`Ingested [${category}]: ${item.title}`);
-        }
-      } catch (err: any) {
-        console.error(`Failed to parse feed ${feed.url}: ${err.message}`);
       }
     }
+
+    console.log(`>>> [RSS] Ingestion complete. Total new posts: ${totalIngested}`);
   } catch (err: any) {
     console.error("Ingestion Loop Error:", err.message);
   }
