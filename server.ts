@@ -617,10 +617,17 @@ app.post("/api/admin/skills/generate", checkAdminSecret, async (req, res) => {
 
     const userPrompt = `Generate a skill JSON for: "${prompt}"
 
-Return exactly this structure:
-{"id":"snake_case","name":"Title","slug":"kebab-case","description":"one sentence","long_description":"two sentences","category":"analysis","tags":["tag1","tag2"],"input_schema":{"type":"object","properties":{"text":{"type":"string"}}},"output_schema":{"type":"object","properties":{"result":{"type":"object"}}},"risk_level":"low","install_command":"npx aifeast slug","run_command":"npx aifeast run slug"}`;
+Return exactly this structure. Keep all string values SHORT. Maximum 100 characters per field.
+{"id":"snake_case","name":"Title","slug":"kebab-case","description":"max 100 chars","long_description":"max 200 chars","category":"analysis","tags":["tag1","tag2","tag3"],"input_schema":{"type":"object","properties":{"text":{"type":"string"}}},"output_schema":{"type":"object","properties":{"result":{"type":"object"}}},"risk_level":"low","install_command":"npx aifeast slug","run_command":"npx aifeast run slug"}
 
-    // Chamar Groq com modelo ativo (mixtral foi descontinuado)
+Rules:
+- description: MAX 100 characters
+- long_description: MAX 200 characters
+- tags: MAX 3 items
+- input_schema: MAX 1-2 properties
+- output_schema: MAX 1-2 properties`;
+
+    // Chamar Groq com modelo ativo e max_tokens adequado
     const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
