@@ -617,10 +617,24 @@ app.post("/api/admin/skills/generate", checkAdminSecret, async (req, res) => {
 
     const userPrompt = `Generate a skill for: "${prompt}"
 
-Return ONLY this compact JSON on ONE line, no spaces, no newlines:
-{"id":"x","name":"X","slug":"x","desc":"max 80 chars","category":"analysis","tags":["a","b"],"risk":"low"}`;
+Return valid JSON with ALL fields:
+{
+  "id":"snake_case_id",
+  "name":"Skill Name",
+  "slug":"kebab-case-slug",
+  "description":"short description under 100 chars",
+  "long_description":"detailed description under 200 chars",
+  "category":"analysis",
+  "tags":["tag1","tag2","tag3"],
+  "input_schema":{"type":"object","properties":{"input":{"type":"string"}}},
+  "output_schema":{"type":"object","properties":{"output":{"type":"object"}}},
+  "code":"// implementation hint",
+  "risk_level":"low",
+  "install_command":"npx aifeast kebab-case-slug",
+  "run_command":"npx aifeast run kebab-case-slug"
+}`;
 
-    // Chamar Groq
+    // Chamar Groq com response_format json_object
     const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -633,8 +647,9 @@ Return ONLY this compact JSON on ONE line, no spaces, no newlines:
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt }
         ],
-        temperature: 0.1,
-        max_tokens: 1024
+        response_format: { type: "json_object" },
+        temperature: 0.2,
+        max_tokens: 2048
       })
     });
 
@@ -672,51 +687,52 @@ Return ONLY this compact JSON on ONE line, no spaces, no newlines:
       }
     }
 
-    // Preencher campos ausentes com defaults
-    const categoryMap: Record<string, string> = {
-      dev: 'development', code: 'development', tech: 'development',
-      content: 'content', write: 'content', text: 'content',
-      auto: 'automation', bot: 'automation', workflow: 'automation',
-      analysis: 'analysis', analyze: 'analysis', data: 'analysis',
-      security: 'security', auth: 'security', vuln: 'security'
-    };
+    // Validar TODOS os campos obrigatórios
+    const requiredFields = ['id', 'name', 'slug', 'description', 'long_description', 'category', 'tags', 'input_schema', 'output_schema', 'code', 'risk_level', 'install_command', 'run_command'];
+    const missingFields = requiredFields.filter(f => !skillJson[f]);
 
-    const rawCategory = (skillJson.category || skillJson.cat || 'analysis').toLowerCase();
-    const category = Object.entries(categoryMap).find(([key]) => rawCategory.includes(key))?.[1] || 'analysis';
+    if (missingFields.length > 0) {
+      return res.status(422).json({
+        error: "Skill gerada está incompleta",
+        missing: missingFields,
+        raw: responseText.substring(0, 500)
+      });
+    }
 
-    const skill = {
-      id: skillJson.id || skillJson.name?.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/_/g, '') || `skill_${Date.now()}`,
-      name: skillJson.name || skillJson.title || 'New Skill',
-      slug: skillJson.slug || skillJson.id?.replace(/_/g, '-') || skillJson.name?.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'new-skill',
-      description: skillJson.desc || skillJson.description || 'No description',
-      long_description: skillJson.long_description || skillJson.desc || skillJson.description || 'No detailed description',
-      category: category,
-      tags: Array.isArray(skillJson.tags) ? skillJson.tags.slice(0, 3) : ['skill'],
-      input_schema: { type: 'object', properties: { input: { type: 'string', description: 'Input for the skill' } } },
-      output_schema: { type: 'object', properties: { result: { type: 'object', description: 'Result from the skill' } } },
-      code: `// TODO: Implement ${skillJson.name || skillJson.id || 'skill'}`,
-      risk_level: ['low', 'medium', 'high'].includes(skillJson.risk || skillJson.risk_level) ? (skillJson.risk || skillJson.risk_level) : 'low',
-      install_command: `npx aifeast ${skillJson.slug || skillJson.id || 'new-skill'}`,
-      run_command: `npx aifeast run ${skillJson.slug || skillJson.id || 'new-skill'}`
-    };
+    // Validar categoria
+    const validCategories = ['development', 'content', 'automation', 'analysis', 'security'];
+    if (!validCategories.includes(skillJson.category)) {
+      return res.status(422).json({ error: "Categoria inválida", valid: validCategories });
+    }
+
+    // Validar risk_level
+    const validRisks = ['low', 'medium', 'high'];
+    if (!validRisks.includes(skillJson.risk_level)) {
+      return res.status(422).json({ error: "Risk level inválido", valid: validRisks });
+    }
+
+    // Gerar slug se não existir
+    if (!skillJson.slug) {
+      skillJson.slug = skillJson.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    }
 
     // Salvar no banco
     const { data: savedSkill, error: dbError } = await supabase
       .from("skills")
       .insert({
-        id: skill.id,
-        name: skill.name,
-        slug: skill.slug,
-        description: skill.description,
-        long_description: skill.long_description,
-        category: skill.category,
-        tags: skill.tags,
-        input_schema: skill.input_schema,
-        output_schema: skill.output_schema,
-        code: skill.code,
-        install_command: skill.install_command,
-        run_command: skill.run_command,
-        risk_level: skill.risk_level,
+        id: skillJson.id,
+        name: skillJson.name,
+        slug: skillJson.slug,
+        description: skillJson.description,
+        long_description: skillJson.long_description,
+        category: skillJson.category,
+        tags: skillJson.tags,
+        input_schema: skillJson.input_schema,
+        output_schema: skillJson.output_schema,
+        code: skillJson.code,
+        install_command: skillJson.install_command,
+        run_command: skillJson.run_command,
+        risk_level: skillJson.risk_level,
         verified: false,
         is_active: true
       })
