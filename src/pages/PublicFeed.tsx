@@ -43,8 +43,10 @@ export default function PublicFeed() {
   }
 
   const filteredPosts = posts.filter(p => {
-    const matchesCategory = filter === "All" || p.category === filter;
-    const matchesSearch = p.title.toLowerCase().includes(search.toLowerCase()) || 
+    const postCat = (p.category || "General").toLowerCase();
+    const filterCat = filter.toLowerCase();
+    const matchesCategory = filter === "All" || postCat === filterCat;
+    const matchesSearch = p.title.toLowerCase().includes(search.toLowerCase()) ||
                          p.summary?.toLowerCase().includes(search.toLowerCase());
     return matchesCategory && matchesSearch;
   });
