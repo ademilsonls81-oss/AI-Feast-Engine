@@ -293,6 +293,25 @@ async function runIngestion() {
 
 setInterval(runIngestion, 30 * 60 * 1000);
 
+// Heartbeat para monitoramento (a cada 5 min)
+setInterval(async () => {
+  try {
+    const { count: pendingCount } = await supabase
+      .from("posts")
+      .select("*", { count: "exact", head: true })
+      .eq("status", "pending");
+
+    const { count: publishedCount } = await supabase
+      .from("posts")
+      .select("*", { count: "exact", head: true })
+      .eq("status", "published");
+
+    console.log(`>>> [Heartbeat] ${new Date().toISOString()} | Published: ${publishedCount} | Pending: ${pendingCount} | Queue processing: active`);
+  } catch (err: any) {
+    console.error(`>>> [Heartbeat] Error: ${err.message}`);
+  }
+}, 5 * 60 * 1000);
+
 console.log(">>> [AutoQueue] Starting interval...");
 setInterval(async () => {
   console.log(">>> [AutoQueue] Verificando posts pendentes...");
@@ -454,6 +473,65 @@ app.post("/api/admin/feeds", checkAdmin, async (req, res) => {
   const { data, error } = await supabase.from("feeds").insert({ name, url, category }).select().single();
   if (error) return res.status(500).json({ error: error.message });
   logAuditAction((req as any).user.id, "ADD_FEED", req, { name, url });
+  res.json(data);
+});
+
+// GET /api/admin/feeds/summary - Ver feeds por categoria (diagnóstico)
+app.get("/api/admin/feeds/summary", checkAdmin, async (req, res) => {
+  try {
+    const { data: feeds } = await supabase
+      .from("feeds")
+      .select("id, name, url, category")
+      .order("category");
+
+    const { data: posts } = await supabase
+      .from("posts")
+      .select("category, status")
+      .eq("status", "published");
+
+    // Contar feeds por categoria
+    const feedByCategory: Record<string, number> = {};
+    feeds?.forEach(f => {
+      const cat = f.category || "Uncategorized";
+      feedByCategory[cat] = (feedByCategory[cat] || 0) + 1;
+    });
+
+    // Contar posts por categoria
+    const postByCategory: Record<string, number> = {};
+    posts?.forEach(p => {
+      const cat = p.category || "Uncategorized";
+      postByCategory[cat] = (postByCategory[cat] || 0) + 1;
+    });
+
+    res.json({
+      total_feeds: feeds?.length || 0,
+      total_published_posts: posts?.length || 0,
+      feeds_by_category: feedByCategory,
+      posts_by_category: postByCategory,
+      feeds: feeds || []
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /api/admin/feeds/:id - Atualizar categoria de um feed
+app.patch("/api/admin/feeds/:id", checkAdmin, async (req, res) => {
+  const { category } = req.body;
+  const validCategories = ["Tech", "Finance", "Science", "Health", "General"];
+  if (!validCategories.includes(category)) {
+    return res.status(400).json({ error: "Categoria inválida", valid: validCategories });
+  }
+
+  const { data, error } = await supabase
+    .from("feeds")
+    .update({ category })
+    .eq("id", req.params.id)
+    .select()
+    .single();
+
+  if (error) return res.status(500).json({ error: error.message });
+  logAuditAction((req as any).user.id, "UPDATE_FEED_CATEGORY", req, { feed_id: req.params.id, category });
   res.json(data);
 });
 
