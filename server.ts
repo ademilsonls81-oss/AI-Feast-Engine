@@ -1021,9 +1021,11 @@ app.get("/api/search", apiKeyRateLimit, async (req, res) => {
     // Supabase não suporta filtro JSONB nativo simples, então filtramos depois
   }
 
-  // Filtro por categoria
+  // Filtro por categoria (case-insensitive)
   if (category) {
-    query = query.eq("category", category);
+    const catLower = (category as string).toLowerCase();
+    // Supabase ilike para case-insensitive
+    query = query.ilike("category", catLower);
   }
 
   // Paginação
@@ -1109,7 +1111,8 @@ app.get("/api/feed", apiKeyRateLimit, async (req, res) => {
     .eq("status", "published");
 
   if (category) {
-    query = query.eq("category", category);
+    const catLower = (category as string).toLowerCase();
+    query = query.ilike("category", catLower);
   }
 
   const limitNum = Math.min(Number(limit), 50);
@@ -1248,7 +1251,8 @@ app.get("/api/skills/search", async (req, res) => {
       .eq("is_active", true);
 
     if (category) {
-      query = query.eq("category", category);
+      const catLower = (category as string).toLowerCase();
+      query = query.ilike("category", catLower);
     }
 
     if (q) {
