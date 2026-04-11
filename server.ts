@@ -613,43 +613,39 @@ app.post("/api/admin/skills/generate", checkAdminSecret, async (req, res) => {
 
     console.log(`[SkillGen] Gerando skill com prompt: ${prompt.substring(0, 100)}...`);
 
-    const systemPrompt = `Você é um gerador de skills para agentes de IA. Sua tarefa é criar um objeto JSON válido representando uma skill.
+    const systemPrompt = `You are a skill generator API. Respond ONLY with valid JSON, no explanation, no markdown, no text before or after.
 
-Regras:
-1. Retorne APENAS JSON válido, sem markdown, sem explicações, sem texto antes ou depois.
-2. Todos os campos são obrigatórios exceto long_description.
-3. category deve ser uma destas: "development", "content", "automation", "analysis", "security"
-4. risk_level deve ser: "low", "medium", ou "high"
-5. tags deve ser um array de 3-6 palavras-chave relevantes
-6. input_schema e output_schema devem seguir JSON Schema
-7. code deve ser um template do código que a skill executaria (Node.js/TypeScript)
-8. install_command e run_command devem seguir o padrão: npx aifeast <skill-slug>
-
-Estrutura obrigatória do JSON:
+Generate a skill with this exact structure:
 {
-  "id": "snake_case_unique_id",
-  "name": "Nome Legivel da Skill",
-  "slug": "nome-legivel-da-skill",
-  "description": "Descricao curta em 1 frase",
-  "long_description": "Descricao detalhada de 2-3 frases",
-  "category": "uma das categorias validas",
-  "tags": ["tag1", "tag2", "tag3"],
+  "id": "snake_case_id",
+  "name": "Skill Name",
+  "slug": "kebab-case-slug",
+  "description": "clear description",
+  "long_description": "detailed description",
+  "category": "development|content|automation|analysis|security",
+  "tags": ["tag1", "tag2"],
   "input_schema": {"type": "object", "properties": {}},
   "output_schema": {"type": "object", "properties": {}},
-  "code": "// codigo template da skill",
-  "install_command": "npx aifeast <slug>",
-  "run_command": "npx aifeast run <slug>",
-  "risk_level": "low"
+  "code": "implementation hint",
+  "risk_level": "low|medium|high",
+  "install_command": "npx aifeast slug",
+  "run_command": "npx aifeast run slug"
 }
 
-Exemplo de boa resposta:
-{"id":"generate_typescript_types","name":"Generate TypeScript Types","slug":"generate-typescript-types","description":"Gera tipos TypeScript a partir de um schema JSON","long_description":"Analisa um schema JSON e gera interfaces TypeScript correspondentes automaticamente.","category":"development","tags":["typescript","types","schema","codegen"],"input_schema":{"type":"object","properties":{"schema":{"type":"string","description":"JSON Schema de entrada"}}},"output_schema":{"type":"object","properties":{"types":{"type":"string","description":"Codigo TypeScript gerado"}}},"code":"export function generateTypes(schema: string): string {\\n  // Parse schema and generate TypeScript interfaces\\n  return generatedCode;\\n}","install_command":"npx aifeast generate-typescript-types","run_command":"npx aifeast run generate-typescript-types","risk_level":"low"}`;
+Rules:
+- id: unique snake_case (e.g. generate_rest_api)
+- slug: kebab-case (e.g. generate-rest-api)
+- category: MUST be one of: development, content, automation, analysis, security
+- risk_level: MUST be one of: low, medium, high
+- tags: 3-6 relevant keywords
+- code: short implementation hint (TypeScript/Node.js)
 
-    const userPrompt = `Crie uma skill com base nesta descrição:
+Example response:
+{"id":"generate_typescript_types","name":"Generate TypeScript Types","slug":"generate-typescript-types","description":"Genera tipos TypeScript a partir de um schema JSON","long_description":"Analisa um schema JSON e gera interfaces TypeScript correspondentes automaticamente.","category":"development","tags":["typescript","types","schema","codegen"],"input_schema":{"type":"object","properties":{"schema":{"type":"string","description":"JSON Schema de entrada"}}},"output_schema":{"type":"object","properties":{"types":{"type":"string","description":"Codigo TypeScript gerado"}}},"code":"export function generateTypes(schema: string): string {\\n  return parseSchema(schema);\\n}","install_command":"npx aifeast generate-typescript-types","run_command":"npx aifeast run generate-typescript-types","risk_level":"low"}`;
 
-${prompt}
+    const userPrompt = `Skill to generate: ${prompt}
 
-Retorne APENAS o JSON válido, sem markdown ou explicações.`;
+Return ONLY the JSON object. No explanations, no markdown, no extra text.`;
 
     // Chamar Groq
     const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
@@ -692,8 +688,27 @@ Retorne APENAS o JSON válido, sem markdown ou explicações.`;
       skillJson = JSON.parse(responseText);
     } catch (parseError: any) {
       console.error(`[SkillGen] JSON parse error: ${parseError.message}`);
-      console.error(`[SkillGen] Raw response: ${responseText.substring(0, 500)}`);
-      return res.status(500).json({ error: "IA gerou JSON inválido", raw: responseText.substring(0, 500) });
+      console.error(`[SkillGen] Raw response (first 300 chars): ${responseText.substring(0, 300)}`);
+
+      // Fallback: extrair JSON com regex
+      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        console.log(`[SkillGen] Regex fallback matched, trying to parse...`);
+        try {
+          skillJson = JSON.parse(jsonMatch[0]);
+        } catch (regexError: any) {
+          console.error(`[SkillGen] Regex fallback also failed: ${regexError.message}`);
+          return res.status(500).json({
+            error: "IA gerou JSON inválido mesmo após regex fallback",
+            raw: responseText.substring(0, 500)
+          });
+        }
+      } else {
+        return res.status(500).json({
+          error: "IA não retornou JSON válido",
+          raw: responseText.substring(0, 500)
+        });
+      }
     }
 
     // Validar campos obrigatórios
