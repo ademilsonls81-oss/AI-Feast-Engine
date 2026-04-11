@@ -1,7 +1,20 @@
 import React, { useEffect, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
-import { Database, Plus, Trash2, Activity, List, ShieldCheck } from "lucide-react";
+import { Database, Plus, Trash2, Activity, List, ShieldCheck, Sparkles, Power, Eye } from "lucide-react";
 import api from "../lib/api";
+
+interface Skill {
+  id: string;
+  name: string;
+  slug: string;
+  description: string;
+  category: string;
+  tags: string[];
+  risk_level: string;
+  is_active: boolean;
+  downloads: number;
+  created_at: string;
+}
 
 export default function Admin() {
   const [isAdmin, setIsAdmin] = useState(false);
@@ -12,6 +25,13 @@ export default function Admin() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
+
+  // Skills state
+  const [skills, setSkills] = useState<Skill[]>([]);
+  const [skillPrompt, setSkillPrompt] = useState("");
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [adminSecret, setAdminSecret] = useState("");
+  const [generatedSkillPreview, setGeneratedSkillPreview] = useState<any>(null);
 
 
   useEffect(() => {
@@ -52,6 +72,7 @@ export default function Admin() {
 
     // Fetch initial feeds
     fetchFeeds();
+    fetchSkills();
 
     // Feeds subscription
     const feedsSub = supabase
@@ -126,6 +147,82 @@ export default function Admin() {
       .limit(20);
     setAuditLogs(data || []);
   }
+
+  async function fetchSkills() {
+    try {
+      const res = await api.get("/api/skills");
+      setSkills(res.data.skills || []);
+    } catch (err) {
+      console.error("Error fetching skills:", err);
+    }
+  }
+
+  const handleGenerateSkill = async () => {
+    if (!adminSecret) {
+      alert("⚠️ Insira o Admin Secret para continuar");
+      return;
+    }
+    if (skillPrompt.trim().length < 10) {
+      alert("⚠️ Descreva a skill com pelo menos 10 caracteres");
+      return;
+    }
+
+    setIsGenerating(true);
+    setGeneratedSkillPreview(null);
+
+    try {
+      const res = await api.post("/api/admin/skills/generate", { prompt: skillPrompt }, {
+        headers: { "X-Admin-Secret": adminSecret }
+      });
+
+      if (res.data.skill) {
+        setGeneratedSkillPreview(res.data.skill);
+        setSkillPrompt("");
+        fetchSkills();
+        alert(`✅ Skill gerada com sucesso: ${res.data.skill.name}`);
+      }
+    } catch (err: any) {
+      const errorMsg = err.response?.data?.error || err.message || "Erro desconhecido";
+      const details = err.response?.data?.details || "";
+      alert(`❌ Erro ao gerar skill: ${errorMsg}\n${details}`);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const handleToggleSkill = async (skill: Skill) => {
+    if (!adminSecret) {
+      alert("⚠️ Insira o Admin Secret para continuar");
+      return;
+    }
+
+    try {
+      await api.post(`/api/admin/skills/${skill.id}/toggle`, {}, {
+        headers: { "X-Admin-Secret": adminSecret }
+      });
+      fetchSkills();
+    } catch (err: any) {
+      alert("Erro ao alternar skill: " + (err.response?.data?.error || err.message));
+    }
+  };
+
+  const handleDeleteSkill = async (skill: Skill) => {
+    if (!window.confirm(`Tem certeza que deseja deletar "${skill.name}"?`)) return;
+    if (!adminSecret) {
+      alert("⚠️ Insira o Admin Secret para continuar");
+      return;
+    }
+
+    try {
+      await api.delete(`/api/admin/skills/${skill.id}`, {
+        headers: { "X-Admin-Secret": adminSecret }
+      });
+      fetchSkills();
+      alert("Skill deletada com sucesso");
+    } catch (err: any) {
+      alert("Erro ao deletar skill: " + (err.response?.data?.error || err.message));
+    }
+  };
 
   const handleProcessBatch = async () => {
     if (!userId) return;
@@ -216,7 +313,127 @@ export default function Admin() {
         </div>
 
         {/* Global Logs */}
-        <div className="p-8 bg-dark-card border border-white/10 rounded-3xl">
+        <div className="space-y-8">
+          {/* Skills Management Section */}
+          <div className="p-8 bg-dark-card border border-white/10 rounded-3xl">
+            <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-neon-cyan" /> Gerenciar Skills
+            </h2>
+
+            {/* Admin Secret Input */}
+            <div className="mb-6 p-4 bg-black/30 border border-white/5 rounded-xl">
+              <label className="text-xs text-gray-400 mb-2 block">Admin Secret (obrigatório)</label>
+              <input
+                type="password"
+                placeholder="Cole aqui seu ADMIN_SECRET"
+                className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-neon-purple outline-none transition-all font-mono"
+                value={adminSecret}
+                onChange={e => setAdminSecret(e.target.value)}
+              />
+            </div>
+
+            {/* Generate Skill Form */}
+            <div className="space-y-4 mb-8">
+              <textarea
+                placeholder="Descreva a skill que deseja gerar... Ex: 'Skill que analisa código Python e sugere melhorias de segurança'"
+                className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-neon-purple outline-none transition-all min-h-[100px] resize-none"
+                value={skillPrompt}
+                onChange={e => setSkillPrompt(e.target.value)}
+              />
+              <button
+                onClick={handleGenerateSkill}
+                disabled={isGenerating}
+                className="w-full py-3 bg-gradient-to-r from-neon-purple to-neon-cyan text-white rounded-xl font-bold neon-glow-purple disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
+              >
+                <Sparkles className={`w-5 h-5 ${isGenerating ? 'animate-spin' : ''}`} />
+                {isGenerating ? "Gerando com IA..." : "Gerar com IA"}
+              </button>
+            </div>
+
+            {/* Generated Skill Preview */}
+            {generatedSkillPreview && (
+              <div className="mb-8 p-6 bg-neon-purple/5 border border-neon-purple/20 rounded-2xl">
+                <h3 className="text-sm font-bold text-neon-purple uppercase tracking-widest mb-4">Última Skill Gerada</h3>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Nome:</span>
+                    <span className="text-white font-medium">{generatedSkillPreview.name}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Slug:</span>
+                    <span className="text-neon-cyan font-mono">{generatedSkillPreview.slug}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Categoria:</span>
+                    <span className="text-white">{generatedSkillPreview.category}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Risco:</span>
+                    <span className={`font-bold ${
+                      generatedSkillPreview.risk_level === 'low' ? 'text-green-400' :
+                      generatedSkillPreview.risk_level === 'medium' ? 'text-yellow-400' : 'text-red-400'
+                    }`}>
+                      {generatedSkillPreview.risk_level}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Status:</span>
+                    <span className="text-green-400 font-medium">✅ Ativa</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Skills List */}
+            <div className="space-y-4">
+              <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest">Skills Existentes ({skills.length})</h3>
+              {skills.map(skill => (
+                <div key={skill.id} className="flex items-center justify-between p-4 bg-black/30 border border-white/5 rounded-xl hover:border-neon-purple/20 transition-all">
+                  <div className="flex-1 min-w-0 pr-4">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="font-bold text-sm truncate">{skill.name}</span>
+                      {!skill.is_active && (
+                        <span className="px-1.5 py-0.5 bg-red-500/20 text-red-400 text-[8px] rounded uppercase font-bold">Inativa</span>
+                      )}
+                    </div>
+                    <div className="text-[10px] text-gray-500 truncate">{skill.slug}</div>
+                    <div className="flex items-center gap-3 mt-1">
+                      <span className="px-1.5 py-0.5 bg-white/5 text-gray-400 text-[8px] rounded uppercase">{skill.category}</span>
+                      <span className="text-[8px] text-gray-600">↓ {skill.downloads || 0}</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleToggleSkill(skill)}
+                      className={`p-2 rounded-lg transition-all ${
+                        skill.is_active
+                          ? 'bg-green-500/10 text-green-400 hover:bg-green-500/20'
+                          : 'bg-gray-500/10 text-gray-500 hover:bg-gray-500/20'
+                      }`}
+                      title={skill.is_active ? "Desativar" : "Ativar"}
+                    >
+                      <Power className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => handleDeleteSkill(skill)}
+                      className="p-2 bg-red-500/10 text-red-400 rounded-lg hover:bg-red-500/20 transition-all"
+                      title="Deletar"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {skills.length === 0 && (
+                <div className="text-center py-8 text-xs text-gray-600">
+                  Nenhuma skill criada ainda. Use o gerador acima para criar a primeira.
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* AI Processing Control */}
+          <div className="p-8 bg-dark-card border border-white/10 rounded-3xl">
           <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
             <Activity className="w-5 h-5 text-neon-cyan" /> AI Processing Control
           </h2>
@@ -279,6 +496,7 @@ export default function Admin() {
               </div>
             ))}
           </div>
+        </div>
         </div>
       </div>
     </div>

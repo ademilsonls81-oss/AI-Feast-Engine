@@ -457,6 +457,248 @@ app.post("/api/admin/feeds", checkAdmin, async (req, res) => {
   res.json(data);
 });
 
+// ==========================================
+// BLOCO 2: ADMIN SKILLS GENERATOR
+// ==========================================
+
+// Middleware: verificar ADMIN_SECRET no header
+async function checkAdminSecret(req: Request, res: Response, next: NextFunction) {
+  const adminSecret = req.header("X-Admin-Secret");
+  const expectedSecret = process.env.ADMIN_SECRET;
+
+  if (!expectedSecret) {
+    return res.status(500).json({ error: "Admin secret not configured" });
+  }
+
+  if (!adminSecret || adminSecret !== expectedSecret) {
+    return res.status(403).json({ error: "Invalid admin secret" });
+  }
+
+  next();
+}
+
+// POST /api/admin/skills/generate - Gerar skill com IA
+app.post("/api/admin/skills/generate", checkAdminSecret, async (req, res) => {
+  try {
+    const { prompt } = req.body;
+
+    if (!prompt || prompt.trim().length < 10) {
+      return res.status(400).json({ error: "Prompt deve ter pelo menos 10 caracteres" });
+    }
+
+    console.log(`[SkillGen] Gerando skill com prompt: ${prompt.substring(0, 100)}...`);
+
+    const systemPrompt = `Você é um gerador de skills para agentes de IA. Sua tarefa é criar um objeto JSON válido representando uma skill.
+
+Regras:
+1. Retorne APENAS JSON válido, sem markdown, sem explicações, sem texto antes ou depois.
+2. Todos os campos são obrigatórios exceto long_description.
+3. category deve ser uma destas: "development", "content", "automation", "analysis", "security"
+4. risk_level deve ser: "low", "medium", ou "high"
+5. tags deve ser um array de 3-6 palavras-chave relevantes
+6. input_schema e output_schema devem seguir JSON Schema
+7. code deve ser um template do código que a skill executaria (Node.js/TypeScript)
+8. install_command e run_command devem seguir o padrão: npx aifeast <skill-slug>
+
+Estrutura obrigatória do JSON:
+{
+  "id": "snake_case_unique_id",
+  "name": "Nome Legivel da Skill",
+  "slug": "nome-legivel-da-skill",
+  "description": "Descricao curta em 1 frase",
+  "long_description": "Descricao detalhada de 2-3 frases",
+  "category": "uma das categorias validas",
+  "tags": ["tag1", "tag2", "tag3"],
+  "input_schema": {"type": "object", "properties": {}},
+  "output_schema": {"type": "object", "properties": {}},
+  "code": "// codigo template da skill",
+  "install_command": "npx aifeast <slug>",
+  "run_command": "npx aifeast run <slug>",
+  "risk_level": "low"
+}
+
+Exemplo de boa resposta:
+{"id":"generate_typescript_types","name":"Generate TypeScript Types","slug":"generate-typescript-types","description":"Gera tipos TypeScript a partir de um schema JSON","long_description":"Analisa um schema JSON e gera interfaces TypeScript correspondentes automaticamente.","category":"development","tags":["typescript","types","schema","codegen"],"input_schema":{"type":"object","properties":{"schema":{"type":"string","description":"JSON Schema de entrada"}}},"output_schema":{"type":"object","properties":{"types":{"type":"string","description":"Codigo TypeScript gerado"}}},"code":"export function generateTypes(schema: string): string {\\n  // Parse schema and generate TypeScript interfaces\\n  return generatedCode;\\n}","install_command":"npx aifeast generate-typescript-types","run_command":"npx aifeast run generate-typescript-types","risk_level":"low"}`;
+
+    const userPrompt = `Crie uma skill com base nesta descrição:
+
+${prompt}
+
+Retorne APENAS o JSON válido, sem markdown ou explicações.`;
+
+    // Chamar Groq
+    const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${process.env.GROQ_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: "llama-3.1-8b-instant",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt }
+        ],
+        response_format: { type: "json_object" },
+        temperature: 0.3,
+        max_tokens: 2048
+      })
+    });
+
+    if (!groqResponse.ok) {
+      const errorText = await groqResponse.text();
+      console.error(`[SkillGen] Groq error: ${groqResponse.status} - ${errorText}`);
+      return res.status(500).json({ error: "Erro ao gerar skill com IA", details: errorText });
+    }
+
+    const groqData = await groqResponse.json();
+    let responseText = groqData.choices[0]?.message?.content || "";
+
+    // Limpar response de markup
+    responseText = responseText
+      .replace(/```json\s*/g, '')
+      .replace(/```\s*/g, '')
+      .replace(/^[\s\S]*?(\{)/, '$1')
+      .replace(/(\})[\s\S]*$/, '$1')
+      .trim();
+
+    let skillJson;
+    try {
+      skillJson = JSON.parse(responseText);
+    } catch (parseError: any) {
+      console.error(`[SkillGen] JSON parse error: ${parseError.message}`);
+      console.error(`[SkillGen] Raw response: ${responseText.substring(0, 500)}`);
+      return res.status(500).json({ error: "IA gerou JSON inválido", raw: responseText.substring(0, 500) });
+    }
+
+    // Validar campos obrigatórios
+    const requiredFields = ['id', 'name', 'slug', 'description', 'category', 'tags', 'input_schema', 'output_schema', 'risk_level'];
+    const missingFields = requiredFields.filter(f => !skillJson[f]);
+
+    if (missingFields.length > 0) {
+      return res.status(422).json({
+        error: "Skill gerada está incompleta",
+        missing: missingFields,
+        raw: responseText.substring(0, 500)
+      });
+    }
+
+    // Validar categoria
+    const validCategories = ['development', 'content', 'automation', 'analysis', 'security'];
+    if (!validCategories.includes(skillJson.category)) {
+      return res.status(422).json({ error: "Categoria inválida", valid: validCategories });
+    }
+
+    // Validar risk_level
+    const validRisks = ['low', 'medium', 'high'];
+    if (!validRisks.includes(skillJson.risk_level)) {
+      return res.status(422).json({ error: "Risk level inválido", valid: validRisks });
+    }
+
+    // Gerar slug se não existir
+    if (!skillJson.slug) {
+      skillJson.slug = skillJson.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    }
+
+    // Salvar no banco
+    const { data: savedSkill, error: dbError } = await supabase
+      .from("skills")
+      .insert({
+        id: skillJson.id,
+        name: skillJson.name,
+        slug: skillJson.slug,
+        description: skillJson.description,
+        long_description: skillJson.long_description || skillJson.description,
+        category: skillJson.category,
+        tags: skillJson.tags,
+        input_schema: skillJson.input_schema,
+        output_schema: skillJson.output_schema,
+        code: skillJson.code || '',
+        install_command: skillJson.install_command || `npx aifeast ${skillJson.slug}`,
+        run_command: skillJson.run_command || `npx aifeast run ${skillJson.slug}`,
+        risk_level: skillJson.risk_level,
+        verified: false,
+        is_active: true
+      })
+      .select()
+      .single();
+
+    if (dbError) {
+      if (dbError.code === '23505') { // unique violation
+        return res.status(409).json({ error: "Skill com este id ou slug já existe", details: dbError.message });
+      }
+      return res.status(500).json({ error: "Erro ao salvar skill no banco", details: dbError.message });
+    }
+
+    // Invalidar cache
+    cacheInvalidate("skills");
+
+    console.log(`[SkillGen] Skill criada com sucesso: ${savedSkill.name} (${savedSkill.slug})`);
+
+    res.status(201).json({
+      message: "Skill gerada e salva com sucesso!",
+      skill: savedSkill
+    });
+  } catch (err: any) {
+    console.error("[SkillGen] Erro inesperado:", err.message);
+    res.status(500).json({ error: "Erro interno ao gerar skill" });
+  }
+});
+
+// POST /api/admin/skills/:id/toggle - Ativar/desativar skill
+app.post("/api/admin/skills/:id/toggle", checkAdminSecret, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const { data: skill, error: fetchError } = await supabase
+      .from("skills")
+      .select("is_active")
+      .eq("id", id)
+      .single();
+
+    if (fetchError || !skill) {
+      return res.status(404).json({ error: "Skill não encontrada" });
+    }
+
+    const { data: updatedSkill, error: updateError } = await supabase
+      .from("skills")
+      .update({ is_active: !skill.is_active })
+      .eq("id", id)
+      .select()
+      .single();
+
+    if (updateError) {
+      return res.status(500).json({ error: "Erro ao atualizar skill" });
+    }
+
+    cacheInvalidate("skills");
+
+    res.json({
+      message: `Skill ${updatedSkill.is_active ? 'ativada' : 'desativada'}`,
+      skill: updatedSkill
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: "Erro interno" });
+  }
+});
+
+// DELETE /api/admin/skills/:id - Deletar skill
+app.delete("/api/admin/skills/:id", checkAdminSecret, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const { error } = await supabase.from("skills").delete().eq("id", id);
+    if (error) {
+      return res.status(500).json({ error: "Erro ao deletar skill" });
+    }
+
+    cacheInvalidate("skills");
+    res.json({ message: "Skill deletada com sucesso" });
+  } catch (err: any) {
+    res.status(500).json({ error: "Erro interno" });
+  }
+});
+
 app.post("/api/create-checkout-session", async (req, res) => {
   const { userId, email } = req.body;
   if (!userId || !email) return res.status(400).json({ error: "Missing data" });
