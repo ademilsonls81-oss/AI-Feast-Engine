@@ -613,28 +613,28 @@ app.post("/api/admin/skills/generate", checkAdminSecret, async (req, res) => {
 
     console.log(`[SkillGen] Gerando skill com prompt: ${prompt.substring(0, 100)}...`);
 
-    const systemPrompt = `You are a JSON API. Return ONLY raw JSON, no markdown, no backticks, no explanation.`;
+    const systemPrompt = `You are a JSON API that generates skill configurations. Always return valid JSON.`;
 
-    const userPrompt = `Generate a skill for: "${prompt}"
+    const userPrompt = `Create a skill configuration for: "${prompt}"
 
-Return valid JSON with ALL fields:
-{
-  "id":"snake_case_id",
-  "name":"Skill Name",
-  "slug":"kebab-case-slug",
-  "description":"short description under 100 chars",
-  "long_description":"detailed description under 200 chars",
-  "category":"analysis",
-  "tags":["tag1","tag2","tag3"],
-  "input_schema":{"type":"object","properties":{"input":{"type":"string"}}},
-  "output_schema":{"type":"object","properties":{"output":{"type":"object"}}},
-  "code":"// implementation hint",
-  "risk_level":"low",
-  "install_command":"npx aifeast kebab-case-slug",
-  "run_command":"npx aifeast run kebab-case-slug"
-}`;
+Required fields (return ALL of them as a JSON object):
+- id: snake_case identifier (e.g. entity_extractor)
+- name: Human readable title
+- slug: kebab-case URL slug (e.g. entity-extractor)
+- description: Short description under 100 chars
+- long_description: Detailed description under 200 chars
+- category: One of: development, content, automation, analysis, security
+- tags: Array of 3 keywords
+- input_schema: JSON schema with one "input" string property
+- output_schema: JSON schema with one "output" object property
+- code: Short implementation hint as string
+- risk_level: One of: low, medium, high
+- install_command: "npx aifeast {slug}"
+- run_command: "npx aifeast run {slug}"
 
-    // Chamar Groq com response_format json_object
+Return ONLY the JSON object. Nothing else.`;
+
+    // Chamar Groq com groq/compound
     const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -648,9 +648,8 @@ Return valid JSON with ALL fields:
           { role: "user", content: userPrompt }
         ],
         response_format: { type: "json_object" },
-        temperature: 0.2,
-        max_tokens: 4096,
-        stop: ["\n\n", "```"]
+        temperature: 0.1,
+        max_tokens: 4096
       })
     });
 
