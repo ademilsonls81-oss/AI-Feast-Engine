@@ -140,23 +140,41 @@ Content: ${sourceText}`;
           .replace(/(\})[\s\S]*$/, '$1')
           .trim();
 
+        // Fix trailing commas (common Groq issue)
+        jsonStr = jsonStr.replace(/,\s*([}\]])/g, '$1');
+
+        // Regex fallback se o parse inicial falhar
+        let parsed;
         try {
-          const parsed = JSON.parse(jsonStr);
-          if (parsed.summary && parsed.translations && typeof parsed.summary === 'string') {
-            // Validar traduções
-            const requiredLangs = ['en', 'es', 'fr', 'de', 'it', 'ja', 'ko', 'zh', 'ru', 'ar'];
-            const allTranslationsPresent = requiredLangs.every(lang => parsed.translations[lang] && parsed.translations[lang].length > 0);
-            
-            if (allTranslationsPresent) {
-              return parsed;
-            } else {
-              const missing = requiredLangs.filter(lang => !parsed.translations[lang] || parsed.translations[lang].length === 0);
-              console.log(`[Groq] Missing translations: ${missing.join(', ')}`);
-            }
-          }
-        } catch (parseError) {
+          parsed = JSON.parse(jsonStr);
+        } catch (parseError: any) {
           console.log(`[Groq] JSON parse error: ${parseError.message}`);
           console.log(`[Groq] Raw response (first 200 chars): ${jsonStr.substring(0, 200)}`);
+
+          // Fallback: extrair JSON com regex
+          const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            let cleaned = jsonMatch[0].replace(/,\s*([}\]])/g, '$1');
+            try {
+              parsed = JSON.parse(cleaned);
+              console.log(`[Groq] Regex fallback succeeded`);
+            } catch (e) {
+              console.log(`[Groq] Regex fallback also failed`);
+            }
+          }
+        }
+
+        if (parsed && parsed.summary && parsed.translations && typeof parsed.summary === 'string') {
+          // Validar traduções
+          const requiredLangs = ['en', 'es', 'fr', 'de', 'it', 'ja', 'ko', 'zh', 'ru', 'ar'];
+          const allTranslationsPresent = requiredLangs.every(lang => parsed.translations[lang] && parsed.translations[lang].length > 0);
+
+          if (allTranslationsPresent) {
+            return parsed;
+          } else {
+            const missing = requiredLangs.filter(lang => !parsed.translations[lang] || parsed.translations[lang].length === 0);
+            console.log(`[Groq] Missing translations: ${missing.join(', ')}`);
+          }
         }
 
         if (retry < MAX_RETRIES - 1) {
