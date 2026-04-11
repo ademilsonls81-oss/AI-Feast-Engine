@@ -1,0 +1,12 @@
+{
+  "name": "aifeast",
+  "version": "1.0.0",
+  "description": "AI Feast Engine CLI - Install and run AI skills",
+  "main": "index.js",
+  "bin": {
+    "aifeast": "./index.js"
+  },
+  "dependencies": {
+    "axios": "^1.0.0"
+  }
+}
