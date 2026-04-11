@@ -613,28 +613,25 @@ app.post("/api/admin/skills/generate", checkAdminSecret, async (req, res) => {
 
     console.log(`[SkillGen] Gerando skill com prompt: ${prompt.substring(0, 100)}...`);
 
-    const systemPrompt = `You are a JSON API that generates skill configurations. Always return valid JSON.`;
+    const systemPrompt = `You are a JSON API. Return ONLY valid JSON, no markdown, no explanation.`;
 
-    const userPrompt = `Create a skill configuration for: "${prompt}"
+    const userPrompt = `Create a skill for: "${prompt}"
 
-Required fields (return ALL of them as a JSON object):
-- id: snake_case identifier (e.g. entity_extractor)
-- name: Human readable title
-- slug: kebab-case URL slug (e.g. entity-extractor)
-- description: Short description under 100 chars
-- long_description: Detailed description under 200 chars
-- category: One of: development, content, automation, analysis, security
-- tags: Array of 3 keywords
-- input_schema: JSON schema with one "input" string property
-- output_schema: JSON schema with one "output" object property
-- code: Short implementation hint as string
-- risk_level: One of: low, medium, high
-- install_command: "npx aifeast {slug}"
-- run_command: "npx aifeast run {slug}"
+Return ONLY this JSON object with ALL fields:
+{
+  "id":"snake_case_id",
+  "name":"Title",
+  "slug":"kebab-case",
+  "description":"one sentence max 100 chars",
+  "long_description":"two sentences max 200 chars",
+  "category":"development|content|automation|analysis|security",
+  "tags":["tag1","tag2","tag3"],
+  "risk_level":"low|medium|high",
+  "install_command":"npx aifeast slug",
+  "run_command":"npx aifeast run slug"
+}`;
 
-Return ONLY the JSON object. Nothing else.`;
-
-    // Chamar Groq com groq/compound
+    // Chamar Groq
     const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -649,7 +646,7 @@ Return ONLY the JSON object. Nothing else.`;
         ],
         response_format: { type: "json_object" },
         temperature: 0.1,
-        max_tokens: 4096
+        max_tokens: 1024
       })
     });
 
@@ -687,8 +684,8 @@ Return ONLY the JSON object. Nothing else.`;
       }
     }
 
-    // Validar TODOS os campos obrigatórios
-    const requiredFields = ['id', 'name', 'slug', 'description', 'long_description', 'category', 'tags', 'input_schema', 'output_schema', 'code', 'risk_level', 'install_command', 'run_command'];
+    // Validar campos obrigatórios (somente os que a IA gera)
+    const requiredFields = ['id', 'name', 'slug', 'description', 'long_description', 'category', 'tags', 'risk_level', 'install_command', 'run_command'];
     const missingFields = requiredFields.filter(f => !skillJson[f]);
 
     if (missingFields.length > 0) {
@@ -715,6 +712,11 @@ Return ONLY the JSON object. Nothing else.`;
     if (!skillJson.slug) {
       skillJson.slug = skillJson.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
     }
+
+    // Adicionar campos padrão que a IA não gera
+    skillJson.input_schema = { type: "object", properties: { input: { type: "string" } } };
+    skillJson.output_schema = { type: "object", properties: { output: { type: "string" } } };
+    skillJson.code = `// TODO: Implement ${skillJson.id || skillJson.name || 'skill'}`;
 
     // Salvar no banco
     const { data: savedSkill, error: dbError } = await supabase
