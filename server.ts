@@ -613,41 +613,14 @@ app.post("/api/admin/skills/generate", checkAdminSecret, async (req, res) => {
 
     console.log(`[SkillGen] Gerando skill com prompt: ${prompt.substring(0, 100)}...`);
 
-    const systemPrompt = `You are a skill generator API. Respond ONLY with valid JSON, no explanation, no markdown, no text before or after.
+    const systemPrompt = `You are a JSON API. Return ONLY raw JSON, no markdown, no backticks, no explanation. Just the JSON object.`;
 
-Generate a skill with this exact structure:
-{
-  "id": "snake_case_id",
-  "name": "Skill Name",
-  "slug": "kebab-case-slug",
-  "description": "clear description",
-  "long_description": "detailed description",
-  "category": "development|content|automation|analysis|security",
-  "tags": ["tag1", "tag2"],
-  "input_schema": {"type": "object", "properties": {}},
-  "output_schema": {"type": "object", "properties": {}},
-  "code": "implementation hint",
-  "risk_level": "low|medium|high",
-  "install_command": "npx aifeast slug",
-  "run_command": "npx aifeast run slug"
-}
+    const userPrompt = `Generate a skill JSON for: "${prompt}"
 
-Rules:
-- id: unique snake_case (e.g. generate_rest_api)
-- slug: kebab-case (e.g. generate-rest-api)
-- category: MUST be one of: development, content, automation, analysis, security
-- risk_level: MUST be one of: low, medium, high
-- tags: 3-6 relevant keywords
-- code: short implementation hint (TypeScript/Node.js)
+Return exactly this structure:
+{"id":"snake_case","name":"Title","slug":"kebab-case","description":"one sentence","long_description":"two sentences","category":"analysis","tags":["tag1","tag2"],"input_schema":{"type":"object","properties":{"text":{"type":"string"}}},"output_schema":{"type":"object","properties":{"result":{"type":"object"}}},"risk_level":"low","install_command":"npx aifeast slug","run_command":"npx aifeast run slug"}`;
 
-Example response:
-{"id":"generate_typescript_types","name":"Generate TypeScript Types","slug":"generate-typescript-types","description":"Genera tipos TypeScript a partir de um schema JSON","long_description":"Analisa um schema JSON e gera interfaces TypeScript correspondentes automaticamente.","category":"development","tags":["typescript","types","schema","codegen"],"input_schema":{"type":"object","properties":{"schema":{"type":"string","description":"JSON Schema de entrada"}}},"output_schema":{"type":"object","properties":{"types":{"type":"string","description":"Codigo TypeScript gerado"}}},"code":"export function generateTypes(schema: string): string {\\n  return parseSchema(schema);\\n}","install_command":"npx aifeast generate-typescript-types","run_command":"npx aifeast run generate-typescript-types","risk_level":"low"}`;
-
-    const userPrompt = `Skill to generate: ${prompt}
-
-Return ONLY the JSON object. No explanations, no markdown, no extra text.`;
-
-    // Chamar Groq
+    // Chamar Groq com modelo mixtral
     const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -655,7 +628,7 @@ Return ONLY the JSON object. No explanations, no markdown, no extra text.`;
         "Authorization": `Bearer ${process.env.GROQ_API_KEY}`
       },
       body: JSON.stringify({
-        model: "llama-3.1-8b-instant",
+        model: "mixtral-8x7b-32768",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt }
