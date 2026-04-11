@@ -3,7 +3,20 @@ import OpenAI from "openai";
 
 const MAX_CONCURRENT_POSTS = Number(process.env.MAX_CONCURRENT_POSTS) || 1;
 const BATCH_DELAY_MS = Number(process.env.BATCH_DELAY_MS) || 15000;
-const MAX_RETRIES = 3;
+const MAX_RETRIES = 5;
+
+/**
+ * Limpa JSON retornado pelo Groq antes de fazer parse.
+ * Remove vírgulas extras antes de } e ], markdown blocks e espaços.
+ */
+function cleanJSON(text: string): string {
+  return text
+    .replace(/```json/g, '')
+    .replace(/```/g, '')
+    .replace(/,\s*}/g, '}')
+    .replace(/,\s*]/g, ']')
+    .trim();
+}
 
 class QueueService {
   private queue: string[] = [];
@@ -62,9 +75,9 @@ class QueueService {
     const retryCount = (post.retry_count || 0) + 1;
 
     if (result.error) {
-      if (retryCount >= 3) {
+      if (retryCount >= 5) {
         await this.supabase.from("posts").update({
-          status: "failed",
+          status: "error",
           error_message: result.error,
           retry_count: retryCount
         }).eq("id", postId);
@@ -75,7 +88,7 @@ class QueueService {
           error_message: result.error,
           retry_count: retryCount
         }).eq("id", postId);
-        console.log(`[QueueService] Post ${postId} marcado para retry (${retryCount}/3)`);
+        console.log(`[QueueService] Post ${postId} marcado para retry (${retryCount}/5)`);
       }
       return;
     }
@@ -132,39 +145,27 @@ Content: ${sourceText}`;
 
         const responseText = completion.choices[0].message.content || "";
 
-        // Limpar response de qualquer markup
-        let jsonStr = responseText
-          .replace(/```json\s*/g, '')
-          .replace(/```\s*/g, '')
-          .replace(/^[\s\S]*?(\{)/, '$1')
-          .replace(/(\})[\s\S]*$/, '$1')
-          .trim();
+        // Limpar response usando função dedicada
+        let jsonStr = cleanJSON(responseText);
 
-        // Fix trailing commas (common Groq issue)
-        jsonStr = jsonStr.replace(/,\s*([}\]])/g, '$1');
+        // Regex fallback: extrair primeiro bloco JSON se o texto vier misturado
+        const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          jsonStr = cleanJSON(jsonMatch[0]);
+        }
 
-        // Regex fallback se o parse inicial falhar
+        // Tentativa de parse
         let parsed;
         try {
           parsed = JSON.parse(jsonStr);
         } catch (parseError: any) {
           console.log(`[Groq] JSON parse error: ${parseError.message}`);
-          console.log(`[Groq] Raw response (first 200 chars): ${jsonStr.substring(0, 200)}`);
-
-          // Fallback: extrair JSON com regex
-          const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
-          if (jsonMatch) {
-            let cleaned = jsonMatch[0].replace(/,\s*([}\]])/g, '$1');
-            try {
-              parsed = JSON.parse(cleaned);
-              console.log(`[Groq] Regex fallback succeeded`);
-            } catch (e) {
-              console.log(`[Groq] Regex fallback also failed`);
-            }
-          }
+          console.log(`[Groq] Raw response (first 200 chars): ${responseText.substring(0, 200)}`);
+          // Tenta parse direto sem regex (pode ser que o cleanJSON já resolveu)
+          throw new Error(`JSON inválido após limpeza: ${parseError.message}`);
         }
 
-        if (parsed && parsed.summary && parsed.translations && typeof parsed.summary === 'string') {
+        if (parsed.summary && parsed.translations && typeof parsed.summary === 'string') {
           // Validar traduções
           const requiredLangs = ['en', 'es', 'fr', 'de', 'it', 'ja', 'ko', 'zh', 'ru', 'ar'];
           const allTranslationsPresent = requiredLangs.every(lang => parsed.translations[lang] && parsed.translations[lang].length > 0);
