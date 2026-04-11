@@ -749,10 +749,138 @@ Return ONLY this JSON object with ALL fields (no markdown, no extra text):
   }
 });
 
-// POST /api/admin/skills/:id/toggle - Ativar/desativar skill
+// ==========================================
+// SKILL EVALUATOR + SEGURANÇA (Bloco 4)
+// ==========================================
+
+// Blacklist de comandos perigosos
+const DANGEROUS_PATTERNS = [
+  /rm\s+-rf/i,
+  /DROP\s+TABLE/i,
+  /process\.exit/i,
+  /eval\s*\(/i,
+  /execSync/i,
+  /exec\s*\(/i,
+  /child_process/i,
+  /fs\.writeFile/i,
+  /fs\.unlink/i,
+  /require\s*\(\s*['"]child_process['"]\s*\)/i,
+  /spawn/i,
+  /fork/i,
+  /__proto__/i,
+  /constructor\.prototype/i
+];
+
+function scanForDanger(code: string): string[] {
+  return DANGEROUS_PATTERNS
+    .filter(pattern => pattern.test(code))
+    .map(pattern => pattern.source);
+}
+
+// POST /api/skills/:slug/evaluate - Avaliar segurança de uma skill
+app.post("/api/skills/:slug/evaluate", async (req, res) => {
+  try {
+    const { slug } = req.params;
+
+    // Buscar skill no banco
+    const { data: skill, error } = await supabase
+      .from("skills")
+      .select("*")
+      .eq("slug", slug)
+      .eq("is_active", true)
+      .single();
+
+    if (error || !skill) {
+      return res.status(404).json({ error: "Skill not found or inactive" });
+    }
+
+    // Scan por código perigoso
+    const warnings = scanForDanger(skill.code || "");
+
+    // Avaliar via Groq
+    const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${process.env.GROQ_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: "llama-3.1-8b-instant",
+        messages: [
+          {
+            role: "system",
+            content: "You are a security evaluator. Analyze the skill and return ONLY valid JSON with: risk (low|medium|high), score (0-1), explanation (string), warnings (array of strings)."
+          },
+          {
+            role: "user",
+            content: `Evaluate this AI skill for security:
+Name: ${skill.name}
+Category: ${skill.category}
+Description: ${skill.description}
+Tags: ${(skill.tags || []).join(", ")}
+Code: ${skill.code || "No code provided"}
+
+Return ONLY JSON: {"risk":"low","score":0.95,"explanation":"Safe","warnings":[]}`
+          }
+        ],
+        response_format: { type: "json_object" },
+        temperature: 0.1,
+        max_tokens: 512
+      })
+    });
+
+    let evaluation = { risk: "low", score: 0.95, explanation: "Default safe evaluation", warnings: [] };
+
+    if (groqResponse.ok) {
+      try {
+        const groqData = await groqResponse.json();
+        let responseText = groqData.choices[0]?.message?.content || "";
+        responseText = responseText.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+        const parsed = JSON.parse(responseText);
+        if (parsed.risk && parsed.score) {
+          evaluation = parsed;
+        }
+      } catch {
+        console.log("[Evaluator] Groq parse failed, using defaults");
+      }
+    }
+
+    // Adicionar warnings do scan local
+    if (warnings.length > 0) {
+      evaluation.warnings.push(...warnings);
+      evaluation.risk = "high";
+      evaluation.score = Math.max(0, evaluation.score - 0.5);
+    }
+
+    // Skill evaluator protegida
+    if (skill.id === "skill_evaluator") {
+      evaluation.warnings.push("This is a protected system skill");
+    }
+
+    res.json({
+      slug: skill.slug,
+      name: skill.name,
+      risk: evaluation.risk,
+      score: evaluation.score,
+      explanation: evaluation.explanation,
+      warnings: evaluation.warnings,
+      blocked: evaluation.risk === "high"
+    });
+  } catch (err: any) {
+    console.error("[Evaluator] Error:", err.message);
+    res.status(500).json({ error: "Failed to evaluate skill" });
+  }
+});
+
+// POST /api/admin/skills/:id/toggle - Ativar/desativar skill (com proteção do evaluator)
 app.post("/api/admin/skills/:id/toggle", checkAdminSecret, async (req, res) => {
   try {
     const { id } = req.params;
+
+    // Proteger skill_evaluator
+    if (id === "skill_evaluator") {
+      return res.status(403).json({ error: "Skill Evaluator cannot be deactivated" });
+    }
 
     const { data: skill, error: fetchError } = await supabase
       .from("skills")
@@ -786,10 +914,15 @@ app.post("/api/admin/skills/:id/toggle", checkAdminSecret, async (req, res) => {
   }
 });
 
-// DELETE /api/admin/skills/:id - Deletar skill
+// DELETE /api/admin/skills/:id - Deletar skill (com proteção do evaluator)
 app.delete("/api/admin/skills/:id", checkAdminSecret, async (req, res) => {
   try {
     const { id } = req.params;
+
+    // Proteger skill_evaluator
+    if (id === "skill_evaluator") {
+      return res.status(403).json({ error: "Skill Evaluator cannot be deleted" });
+    }
 
     const { error } = await supabase.from("skills").delete().eq("id", id);
     if (error) {
@@ -1333,7 +1466,29 @@ app.post("/api/skills/:slug/execute", apiKeyRateLimit, async (req, res) => {
       return res.status(404).json({ error: "Skill not found or inactive" });
     }
 
-    // Verificar limite do plano
+    // PASSO 1: Avaliar segurança antes de executar
+    const warnings = scanForDanger(skill.code || "");
+    let riskLevel = "low";
+    let evaluationScore = 0.95;
+    let evaluationExplanation = "Safe execution";
+
+    if (warnings.length > 0) {
+      riskLevel = "high";
+      evaluationScore = 0.2;
+      evaluationExplanation = `Dangerous patterns detected: ${warnings.join(", ")}`;
+      console.log(`[Security] Blocked ${slug}: ${warnings.join(", ")}`);
+      return res.status(403).json({
+        error: "Skill blocked by security evaluator",
+        skill: slug,
+        risk: "high",
+        score: evaluationScore,
+        explanation: evaluationExplanation,
+        warnings: warnings,
+        message: "This skill contains dangerous patterns and cannot be executed"
+      });
+    }
+
+    // PASSO 2: Verificar limite do plano
     const planCheck = checkPlanLimit(user);
     if (!planCheck.allowed) {
       return res.status(402).json({
@@ -1368,7 +1523,13 @@ app.post("/api/skills/:slug/execute", apiKeyRateLimit, async (req, res) => {
       status: "executed",
       input_received: userInput,
       message: "Skill execution simulated (full execution in Bloco 2-3)",
-      risk_level: skill.risk_level,
+      security: {
+        risk: riskLevel,
+        score: evaluationScore,
+        explanation: evaluationExplanation,
+        warnings: warnings,
+        evaluator: "local-scan"
+      },
       usage_remaining: planCheck.remaining
     };
 
