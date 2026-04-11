@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
-import { Database, Plus, Trash2, Activity, List, ShieldCheck, Sparkles, Power, Eye } from "lucide-react";
+import { Database, Plus, Trash2, Activity, List, ShieldCheck, Sparkles, Power, Eye, EyeOff } from "lucide-react";
 import api from "../lib/api";
 
 interface Skill {
@@ -30,7 +30,8 @@ export default function Admin() {
   const [skills, setSkills] = useState<Skill[]>([]);
   const [skillPrompt, setSkillPrompt] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
-  const [adminSecret, setAdminSecret] = useState("");
+  const [adminSecret, setAdminSecret] = useState(() => localStorage.getItem("adminSecret") || "");
+  const [showAdminSecret, setShowAdminSecret] = useState(false);
   const [generatedSkillPreview, setGeneratedSkillPreview] = useState<any>(null);
 
 
@@ -332,14 +333,26 @@ export default function Admin() {
 
             {/* Admin Secret Input */}
             <div className="mb-6 p-4 bg-black/30 border border-white/5 rounded-xl">
-              <label className="text-xs text-gray-400 mb-2 block">Admin Secret (obrigatório)</label>
-              <input
-                type="password"
-                placeholder="Cole aqui seu ADMIN_SECRET"
-                className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-neon-purple outline-none transition-all font-mono"
-                value={adminSecret}
-                onChange={e => setAdminSecret(e.target.value)}
-              />
+              <label className="text-xs text-gray-400 mb-2 block">Admin Secret (salvo localmente)</label>
+              <div className="relative">
+                <input
+                  type={showAdminSecret ? "text" : "password"}
+                  placeholder="Cole aqui seu ADMIN_SECRET"
+                  className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 pr-12 text-sm focus:border-neon-purple outline-none transition-all font-mono"
+                  value={adminSecret}
+                  onChange={e => {
+                    setAdminSecret(e.target.value);
+                    localStorage.setItem("adminSecret", e.target.value);
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowAdminSecret(!showAdminSecret)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white transition-colors p-1"
+                >
+                  {showAdminSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
             </div>
 
             {/* Generate Skill Form */}
