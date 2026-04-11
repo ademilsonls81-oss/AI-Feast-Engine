@@ -642,14 +642,14 @@ Return valid JSON with ALL fields:
         "Authorization": `Bearer ${process.env.GROQ_API_KEY}`
       },
       body: JSON.stringify({
-        model: "llama-3.1-8b-instant",
+        model: "groq/compound",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt }
         ],
         response_format: { type: "json_object" },
         temperature: 0.2,
-        max_tokens: 2048,
+        max_tokens: 4096,
         stop: ["\n\n", "```"]
       })
     });
