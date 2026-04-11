@@ -806,6 +806,230 @@ app.get("/api/stats", async (req, res) => {
 });
 
 // ==========================================
+// SKILLS SYSTEM - Bloco 1: API Pública
+// ==========================================
+
+// Helper: Verificar limite do plano
+function checkPlanLimit(user: any): { allowed: boolean; limit: number | string; remaining: number | string } {
+  const limits: Record<string, number> = {
+    free: 100,
+    pro: 10000,
+    enterprise: -1 // ilimitado
+  };
+
+  const limit = limits[user.plan] || limits.free;
+  const usageCount = user.usage_count || 0;
+
+  if (limit === -1) {
+    return { allowed: true, limit: "unlimited", remaining: "unlimited" };
+  }
+
+  const remaining = Math.max(0, limit - usageCount);
+  return {
+    allowed: usageCount < limit,
+    limit,
+    remaining
+  };
+}
+
+// GET /api/skills - Listar skills ativas (público)
+app.get("/api/skills", async (req, res) => {
+  try {
+    const cached = cacheGet("skills:list");
+    if (cached) return res.json(cached);
+
+    const { data: skills, error } = await supabase
+      .from("skills")
+      .select("*")
+      .eq("is_active", true)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("Skills list error:", error.message);
+      return res.status(500).json({ error: "Failed to fetch skills" });
+    }
+
+    const result = {
+      skills: skills || [],
+      total: skills?.length || 0,
+      categories: ["development", "content", "automation", "analysis", "security"]
+    };
+
+    cacheSet("skills:list", result, 15 * 60 * 1000); // Cache 15 min
+    res.json(result);
+  } catch (err: any) {
+    console.error("Skills list error:", err.message);
+    res.status(500).json({ error: "Failed to fetch skills" });
+  }
+});
+
+// GET /api/skills/search?q= - Buscar skills (público)
+app.get("/api/skills/search", async (req, res) => {
+  try {
+    const { q, category } = req.query;
+
+    if (!q && !category) {
+      return res.status(400).json({ error: "Provide 'q' or 'category' parameter" });
+    }
+
+    const cacheKey = `skills:search:${q}:${category}`;
+    const cached = cacheGet(cacheKey);
+    if (cached) return res.json(cached);
+
+    let query = supabase
+      .from("skills")
+      .select("*")
+      .eq("is_active", true);
+
+    if (category) {
+      query = query.eq("category", category);
+    }
+
+    if (q) {
+      // Supabase não suporta busca full-text em array diretamente, filtramos depois
+      const { data: allSkills, error } = await query;
+      if (error) throw new Error(error.message);
+
+      const searchTerm = (q as string).toLowerCase();
+      const filtered = (allSkills || []).filter(skill =>
+        skill.name?.toLowerCase().includes(searchTerm) ||
+        skill.description?.toLowerCase().includes(searchTerm) ||
+        skill.long_description?.toLowerCase().includes(searchTerm) ||
+        (skill.tags && skill.tags.some((tag: string) => tag.toLowerCase().includes(searchTerm)))
+      );
+
+      const result = { query: q, skills: filtered, total: filtered.length };
+      cacheSet(cacheKey, result, 10 * 60 * 1000);
+      return res.json(result);
+    }
+
+    const { data: skills, error } = await query.order("created_at", { ascending: false });
+    if (error) throw new Error(error.message);
+
+    const result = { query: "", skills: skills || [], total: skills?.length || 0 };
+    cacheSet(cacheKey, result, 10 * 60 * 1000);
+    res.json(result);
+  } catch (err: any) {
+    console.error("Skills search error:", err.message);
+    res.status(500).json({ error: "Failed to search skills" });
+  }
+});
+
+// GET /api/skills/:slug - Detalhe da skill (público)
+app.get("/api/skills/:slug", async (req, res) => {
+  try {
+    const { slug } = req.params;
+
+    const cached = cacheGet(`skills:detail:${slug}`);
+    if (cached) return res.json(cached);
+
+    const { data: skill, error } = await supabase
+      .from("skills")
+      .select("*")
+      .eq("slug", slug)
+      .eq("is_active", true)
+      .single();
+
+    if (error || !skill) {
+      return res.status(404).json({ error: "Skill not found" });
+    }
+
+    // Incrementar downloads
+    await supabase
+      .from("skills")
+      .update({ downloads: (skill.downloads || 0) + 1 })
+      .eq("id", skill.id);
+
+    const result = { ...skill, downloads: (skill.downloads || 0) + 1 };
+    cacheSet(`skills:detail:${slug}`, result, 30 * 60 * 1000); // Cache 30 min
+    res.json(result);
+  } catch (err: any) {
+    console.error("Skill detail error:", err.message);
+    res.status(500).json({ error: "Failed to fetch skill" });
+  }
+});
+
+// POST /api/skills/:slug/execute - Executar skill (requer API Key)
+app.post("/api/skills/:slug/execute", apiKeyRateLimit, async (req, res) => {
+  try {
+    const { slug } = req.params;
+    const apiKey = req.header("X-API-Key");
+    const userInput = req.body;
+
+    if (!apiKey) {
+      return res.status(401).json({ error: "API Key required. Add X-API-Key header." });
+    }
+
+    // Buscar usuário
+    const { data: user, error: userError } = await supabase
+      .from("users")
+      .select("*")
+      .eq("api_key", apiKey)
+      .single();
+
+    if (userError || !user) {
+      return res.status(403).json({ error: "Invalid API Key" });
+    }
+
+    // Buscar skill
+    const { data: skill, error: skillError } = await supabase
+      .from("skills")
+      .select("*")
+      .eq("slug", slug)
+      .eq("is_active", true)
+      .single();
+
+    if (skillError || !skill) {
+      return res.status(404).json({ error: "Skill not found or inactive" });
+    }
+
+    // Verificar limite do plano
+    const planCheck = checkPlanLimit(user);
+    if (!planCheck.allowed) {
+      return res.status(402).json({
+        error: "Monthly request limit reached",
+        plan: user.plan,
+        limit: planCheck.limit,
+        usage_count: user.usage_count,
+        message: "Upgrade to Pro for more requests or wait for next month reset"
+      });
+    }
+
+    // Incrementar usage_count do usuário
+    await supabase
+      .from("users")
+      .update({ usage_count: (user.usage_count || 0) + 1 })
+      .eq("id", user.id);
+
+    // Log de uso
+    await supabase
+      .from("usage_logs")
+      .insert({
+        user_id: user.id,
+        endpoint: `/api/skills/${slug}/execute`,
+        cost: user.plan === "pro" ? 0.001 : 0
+      });
+
+    // Executar skill (Bloco 2: aqui chamará a IA, Bloco 3: executará código)
+    // Por enquanto, retorna a descrição da skill com os inputs
+    const executionResult = {
+      skill_id: skill.id,
+      skill_name: skill.name,
+      status: "executed",
+      input_received: userInput,
+      message: "Skill execution simulated (full execution in Bloco 2-3)",
+      risk_level: skill.risk_level,
+      usage_remaining: planCheck.remaining
+    };
+
+    res.json(executionResult);
+  } catch (err: any) {
+    console.error("Skill execution error:", err.message);
+    res.status(500).json({ error: "Failed to execute skill" });
+  }
+});
+
+// ==========================================
 // Global Error Handlers
 // ==========================================
 process.on("uncaughtException", (error) => {
