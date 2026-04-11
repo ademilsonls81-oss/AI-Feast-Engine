@@ -12,6 +12,8 @@ import { NextFunction, Request, Response } from "express";
 import { globalIpLimit, apiKeyRateLimit } from "./src/middleware/rateLimit.js";
 import { logAuditAction } from "./src/middleware/auditLog.js";
 import crypto from "crypto";
+import { WebSocketServer, WebSocket } from "ws";
+import * as Sentry from "@sentry/node";
 
 console.log(">>> AI FEAST ENGINE SERVER STARTING...");
 console.log(">>> QueueService imported successfully");
@@ -30,9 +32,78 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey, {
   auth: { autoRefreshToken: false, persistSession: false }
 });
 
+// Sentry initialization
+if (process.env.SENTRY_DSN) {
+  Sentry.init({
+    dsn: process.env.SENTRY_DSN,
+    environment: process.env.NODE_ENV || "development",
+    tracesSampleRate: process.env.NODE_ENV === "production" ? 0.5 : 1.0,
+  });
+  console.log(">>> Sentry initialized");
+} else {
+  console.log(">>> Sentry DSN not configured, error tracking disabled");
+}
+
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "sk_test_mock", {
   apiVersion: "2025-01-27.acacia" as any,
 });
+
+// ==========================================
+// CACHE LAYER (Em memória)
+// ==========================================
+interface CacheEntry {
+  data: any;
+  timestamp: number;
+  ttl: number;
+}
+
+const memoryCache: Record<string, CacheEntry> = {};
+const CACHE_TTL = {
+  stats: 5 * 60 * 1000,       // 5 min
+  feed: 10 * 60 * 1000,       // 10 min
+  verified: 15 * 60 * 1000,   // 15 min
+  search: 30 * 60 * 1000,     // 30 min
+};
+
+function cacheGet(key: string): any | null {
+  const entry = memoryCache[key];
+  if (!entry) return null;
+  if (Date.now() - entry.timestamp > entry.ttl) {
+    delete memoryCache[key];
+    return null;
+  }
+  console.log(`[Cache] HIT: ${key}`);
+  return entry.data;
+}
+
+function cacheSet(key: string, data: any, ttl: number) {
+  memoryCache[key] = { data, timestamp: Date.now(), ttl };
+  console.log(`[Cache] SET: ${key} (TTL: ${ttl/1000}s)`);
+}
+
+function cacheInvalidate(pattern?: string) {
+  if (pattern) {
+    Object.keys(memoryCache).forEach(key => {
+      if (key.includes(pattern)) delete memoryCache[key];
+    });
+  } else {
+    Object.keys(memoryCache).forEach(key => delete memoryCache[key]);
+  }
+  console.log(`[Cache] INVALIDATED${pattern ? `: ${pattern}` : " (ALL)"}`);
+}
+
+// Stats WebSocket para updates em tempo real
+let wss: WebSocketServer | null = null;
+const wsClients = new Set<WebSocket>();
+
+function broadcastWsUpdate(data: any) {
+  const message = JSON.stringify(data);
+  wsClients.forEach(client => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(message);
+    }
+  });
+}
 
 const parser = new Parser({
   customFields: {
@@ -69,6 +140,9 @@ app.use(cors({
 
 app.use(express.json());
 app.use(globalIpLimit);
+
+// Sentry está habilitado apenas se SENTRY_DSN estiver configurado
+// A instrumentação automática do Express já funciona com Sentry.init()
 
 // Stripe Webhook
 app.post("/api/stripe-webhook", express.raw({ type: "application/json" }), async (req, res) => {
@@ -370,6 +444,8 @@ app.post("/api/admin/process-batch", checkAdmin, async (req, res) => {
 
   queueService.addTasks(pending.map(p => p.id));
   logAuditAction((req as any).user.id, "PROCESS_BATCH_MANUAL", req, { count: pending.length });
+  cacheInvalidate("feed"); // Invalida cache de feed
+  broadcastWsUpdate({ type: "queue_update", pending_count: pending.length });
   res.json({ message: `Queueing ${pending.length} posts` });
 });
 
@@ -402,6 +478,346 @@ app.post("/api/create-checkout-session", async (req, res) => {
   }
 });
 
+// ==========================================
+// NEW: Sitemap.xml (Dinâmico)
+// ==========================================
+app.get("/sitemap.xml", async (req, res) => {
+  try {
+    const cached = cacheGet("sitemap");
+    if (cached) {
+      res.setHeader("Content-Type", "application/xml");
+      res.setHeader("Cache-Control", "public, max-age=300");
+      return res.send(cached);
+    }
+
+    const { data: posts } = await supabase
+      .from("posts")
+      .select("link, created_at, title")
+      .eq("status", "published")
+      .order("created_at", { ascending: false })
+      .limit(5000);
+
+    const baseUrl = process.env.APP_URL || "https://www.aifeastengine.com";
+    let xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>${baseUrl}/</loc>
+    <changefreq>daily</changefreq>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>${baseUrl}/feed</loc>
+    <changefreq>hourly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>${baseUrl}/docs</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>${baseUrl}/dashboard</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.6</priority>
+  </url>`;
+
+    if (posts) {
+      posts.forEach(post => {
+        const safeUrl = post.link?.replace(/[<>&"']/g, "");
+        if (safeUrl && safeUrl.startsWith("http")) {
+          xml += `
+  <url>
+    <loc>${safeUrl}</loc>
+    <lastmod>${new Date(post.created_at).toISOString().split('T')[0]}</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.6</priority>
+  </url>`;
+        }
+      });
+    }
+
+    xml += `\n</urlset>`;
+
+    cacheSet("sitemap", xml, 60 * 60 * 1000); // Cache 1h
+    res.setHeader("Content-Type", "application/xml");
+    res.setHeader("Cache-Control", "public, max-age=3600");
+    res.send(xml);
+  } catch (err: any) {
+    console.error("Sitemap error:", err.message);
+    res.status(500).json({ error: "Failed to generate sitemap" });
+  }
+});
+
+// ==========================================
+// NEW: Verified Score Endpoint
+// ==========================================
+app.get("/api/verified", apiKeyRateLimit, async (req, res) => {
+  const apiKey = req.header("X-API-Key") || req.query.key;
+  if (!apiKey) return res.status(401).json({ error: "API Key required" });
+
+  const { data: user } = await supabase.from("users").select("*").eq("api_key", apiKey).single();
+  if (!user) return res.status(403).json({ error: "Invalid API Key" });
+
+  if (user.plan === "free" && user.usage_count >= 100) {
+    return res.status(429).json({ error: "Free limit reached (100/mo)" });
+  }
+
+  await supabase.from("users").update({ usage_count: user.usage_count + 1 }).eq("id", user.id);
+  await supabase.from("usage_logs").insert({
+    user_id: user.id,
+    endpoint: "/api/verified",
+    cost: user.plan === "pro" ? 0.001 : 0
+  });
+
+  // Retorna apenas posts com score de verificação alto
+  const { data: verifiedPosts } = await supabase
+    .from("posts")
+    .select("*")
+    .eq("status", "published")
+    .not("summary", "is", null)
+    .order("created_at", { ascending: false })
+    .limit(20);
+
+  // Adiciona verified_score baseado na qualidade do conteúdo
+  const scoredPosts = (verifiedPosts || []).map(post => ({
+    ...post,
+    verified_score: calculateVerifiedScore(post),
+    is_verified: post.summary && post.translations && Object.keys(post.translations || {}).length >= 8
+  }));
+
+  const filteredPosts = scoredPosts.filter(p => p.is_verified);
+
+  res.json({
+    posts: filteredPosts,
+    total_verified: filteredPosts.length,
+    verified_percentage: verifiedPosts?.length ? Math.round((filteredPosts.length / verifiedPosts.length) * 100) : 0
+  });
+});
+
+function calculateVerifiedScore(post: any): number {
+  let score = 0;
+
+  // Tem título? (+20)
+  if (post.title && post.title.length > 10) score += 20;
+
+  // Tem summary? (+30)
+  if (post.summary && post.summary.length > 50) score += 30;
+
+  // Tem traduções completas? (+30)
+  if (post.translations) {
+    const translationCount = Object.keys(post.translations).length;
+    score += Math.min(30, (translationCount / 10) * 30);
+  }
+
+  // Tem conteúdo raw? (+20)
+  if (post.content_raw && post.content_raw.length > 200) score += 20;
+
+  return Math.round(score);
+}
+
+// ==========================================
+// NEW: Search Endpoint
+// ==========================================
+app.get("/api/search", apiKeyRateLimit, async (req, res) => {
+  const { q, lang, category, limit = 20, offset = 0 } = req.query;
+  const apiKey = req.header("X-API-Key");
+
+  if (apiKey) {
+    const { data: user } = await supabase.from("users").select("*").eq("api_key", apiKey).single();
+    if (!user) return res.status(403).json({ error: "Invalid API Key" });
+    if (user.plan === "free" && user.usage_count >= 100) {
+      return res.status(429).json({ error: "Free limit reached (100/mo)" });
+    }
+    await supabase.from("users").update({ usage_count: user.usage_count + 1 }).eq("id", user.id);
+    await supabase.from("usage_logs").insert({
+      user_id: user.id,
+      endpoint: "/api/search",
+      cost: user.plan === "pro" ? 0.001 : 0
+    });
+  }
+
+  const cacheKey = `search:${q}:${lang}:${category}:${limit}`;
+  const cached = cacheGet(cacheKey);
+  if (cached) return res.json(cached);
+
+  let query = supabase
+    .from("posts")
+    .select("*", { count: "exact" })
+    .eq("status", "published");
+
+  // Busca por título ou summary
+  if (q) {
+    query = query.or(`title.ilike.%${q}%,summary.ilike.%${q}%`);
+  }
+
+  // Filtro por idioma (nas traduções)
+  if (lang) {
+    // Supabase não suporta filtro JSONB nativo simples, então filtramos depois
+  }
+
+  // Filtro por categoria
+  if (category) {
+    query = query.eq("category", category);
+  }
+
+  // Paginação
+  const limitNum = Math.min(Number(limit), 50);
+  const offsetNum = Number(offset);
+  query = query.range(offsetNum, offsetNum + limitNum - 1);
+
+  const { data: posts, error, count } = await query.order("created_at", { ascending: false });
+
+  if (error) {
+    return res.status(500).json({ error: error.message });
+  }
+
+  // Filtra por idioma se necessário
+  let filteredPosts = posts || [];
+  if (lang) {
+    filteredPosts = filteredPosts.filter(post => {
+      if (lang === "pt") return !!post.summary;
+      return post.translations?.[lang as string];
+    }).map(post => {
+      if (lang === "pt") return post;
+      return {
+        ...post,
+        title: post.translations?.[lang as string] || post.title,
+        summary: post.translations?.[lang as string] || post.summary,
+        language: lang
+      };
+    });
+  }
+
+  const result = {
+    query: q,
+    total: count || 0,
+    limit: limitNum,
+    offset: offsetNum,
+    posts: filteredPosts,
+    has_more: (offsetNum + limitNum) < (count || 0)
+  };
+
+  cacheSet(cacheKey, result, CACHE_TTL.search);
+  res.json(result);
+});
+
+// ==========================================
+// UPDATED: Feed endpoint com Cache + Pagination + Filtros
+// ==========================================
+app.get("/api/feed", apiKeyRateLimit, async (req, res) => {
+  const apiKey = req.header("X-API-Key") || req.query.key;
+  if (!apiKey) return res.status(401).json({ error: "API Key required" });
+
+  const { data: user } = await supabase.from("users").select("*").eq("api_key", apiKey).single();
+  if (!user) return res.status(403).json({ error: "Invalid API Key" });
+
+  if (user.plan === "free" && user.usage_count >= 100) {
+    return res.status(429).json({ error: "Free limit reached (100/mo)" });
+  }
+
+  const { lang, category, limit = 20, offset = 0 } = req.query;
+
+  // Cache key baseado nos parâmetros
+  const cacheKey = `feed:${apiKey}:${lang}:${category}:${limit}:${offset}`;
+  const cached = cacheGet(cacheKey);
+  if (cached) {
+    await supabase.from("users").update({ usage_count: user.usage_count + 1 }).eq("id", user.id);
+    await supabase.from("usage_logs").insert({
+      user_id: user.id,
+      endpoint: "/api/feed",
+      cost: user.plan === "pro" ? 0.001 : 0
+    });
+    return res.json(cached);
+  }
+
+  await supabase.from("users").update({ usage_count: user.usage_count + 1 }).eq("id", user.id);
+  await supabase.from("usage_logs").insert({
+    user_id: user.id,
+    endpoint: "/api/feed",
+    cost: user.plan === "pro" ? 0.001 : 0
+  });
+
+  let query = supabase
+    .from("posts")
+    .select("*", { count: "exact" })
+    .eq("status", "published");
+
+  if (category) {
+    query = query.eq("category", category);
+  }
+
+  const limitNum = Math.min(Number(limit), 50);
+  const offsetNum = Number(offset);
+  query = query.range(offsetNum, offsetNum + limitNum - 1);
+
+  const { data: posts, count } = await query.order("created_at", { ascending: false });
+
+  let filteredPosts = posts || [];
+
+  // Filtra/seleciona idioma
+  if (lang && lang !== "pt") {
+    filteredPosts = filteredPosts
+      .filter(post => post.translations?.[lang as string])
+      .map(post => ({
+        ...post,
+        title: post.translations?.[lang as string] || post.title,
+        summary: post.translations?.[lang as string] || post.summary,
+        language: lang
+      }));
+  } else if (lang === "pt") {
+    filteredPosts = filteredPosts.filter(post => post.summary);
+  }
+
+  const result = {
+    total: count || 0,
+    limit: limitNum,
+    offset: offsetNum,
+    posts: filteredPosts,
+    has_more: (offsetNum + limitNum) < (count || 0),
+    user_plan: user.plan,
+    remaining_requests: user.plan === "free" ? Math.max(0, 100 - user.usage_count) : "unlimited"
+  };
+
+  cacheSet(cacheKey, result, CACHE_TTL.feed);
+  res.json(result);
+});
+
+// ==========================================
+// NEW: Stats endpoint com Cache
+// ==========================================
+app.get("/api/stats", async (req, res) => {
+  const cached = cacheGet("stats");
+  if (cached) return res.json(cached);
+
+  const [{ count: postsCount }, { count: feedsCount }] = await Promise.all([
+    supabase.from("posts").select("*", { count: "exact", head: true }).eq("status", "published"),
+    supabase.from("feeds").select("*", { count: "exact", head: true })
+  ]);
+
+  const stats = {
+    postsCount: postsCount || 0,
+    feedsCount: feedsCount || 0,
+    languages: 11,
+    cache_enabled: true
+  };
+
+  cacheSet("stats", stats, CACHE_TTL.stats);
+  res.json(stats);
+});
+
+// ==========================================
+// Global Error Handlers
+// ==========================================
+process.on("uncaughtException", (error) => {
+  console.error("UNCAUGHT EXCEPTION:", error.message);
+  if (process.env.SENTRY_DSN) Sentry.captureException(error);
+});
+
+process.on("unhandledRejection", (reason) => {
+  console.error("UNHANDLED REJECTION:", reason);
+  if (process.env.SENTRY_DSN && reason instanceof Error) Sentry.captureException(reason);
+});
+
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({ server: { middlewareMode: true }, appType: "spa" });
@@ -412,9 +828,32 @@ async function startServer() {
     app.get("*", (req, res) => res.sendFile(path.join(distPath, "index.html")));
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
+  const server = app.listen(PORT, "0.0.0.0", () => {
     console.log(`>>> Server running at http://localhost:${PORT}`);
+    console.log(`>>> WebSocket server starting on ws://localhost:${PORT}`);
     runIngestion();
+  });
+
+  // WebSocket setup para updates em tempo real
+  wss = new WebSocketServer({ server, path: "/ws/stats" });
+  wss.on("connection", (ws) => {
+    console.log("[WebSocket] Client connected");
+    wsClients.add(ws);
+
+    // Envia stats iniciais
+    supabase.from("posts").select("*", { count: "exact", head: true }).eq("status", "published").then(({ count }) => {
+      ws.send(JSON.stringify({ type: "stats", postsCount: count }));
+    });
+
+    ws.on("close", () => {
+      console.log("[WebSocket] Client disconnected");
+      wsClients.delete(ws);
+    });
+
+    ws.on("error", (err) => {
+      console.error("[WebSocket] Error:", err.message);
+      wsClients.delete(ws);
+    });
   });
 }
 
