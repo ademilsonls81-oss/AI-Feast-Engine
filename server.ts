@@ -641,8 +641,8 @@ Rules:
           { role: "user", content: userPrompt }
         ],
         response_format: { type: "json_object" },
-        temperature: 0.3,
-        max_tokens: 2048
+        temperature: 0.2,
+        max_tokens: 4096
       })
     });
 
@@ -668,20 +668,42 @@ Rules:
       skillJson = JSON.parse(responseText);
     } catch (parseError: any) {
       console.error(`[SkillGen] JSON parse error: ${parseError.message}`);
-      console.error(`[SkillGen] Raw response (first 300 chars): ${responseText.substring(0, 300)}`);
+      console.error(`[SkillGen] Raw response (first 500 chars): ${responseText.substring(0, 500)}`);
 
-      // Fallback: extrair JSON com regex
+      // Fallback 1: extrair JSON com regex
       const jsonMatch = responseText.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
-        console.log(`[SkillGen] Regex fallback matched, trying to parse...`);
+        let cleaned = jsonMatch[0]
+          .replace(/,\s*([}\]])/g, '$1')  // Remove trailing commas
+          .replace(/\n\s*\n/g, '\n');     // Remove linhas vazias
         try {
-          skillJson = JSON.parse(jsonMatch[0]);
-        } catch (regexError: any) {
-          console.error(`[SkillGen] Regex fallback also failed: ${regexError.message}`);
-          return res.status(500).json({
-            error: "IA gerou JSON inválido mesmo após regex fallback",
-            raw: responseText.substring(0, 500)
-          });
+          skillJson = JSON.parse(cleaned);
+          console.log(`[SkillGen] Fallback 1 (regex + clean) succeeded`);
+        } catch (e) {
+          console.log(`[SkillGen] Fallback 1 also failed, trying Fallback 2...`);
+
+          // Fallback 2: Tentar completar JSON truncado
+          let fixed = cleaned;
+          // Fechar chaves/colchetes abertos
+          const openBraces = (fixed.match(/{/g) || []).length;
+          const closeBraces = (fixed.match(/}/g) || []).length;
+          const openBrackets = (fixed.match(/\[/g) || []).length;
+          const closeBrackets = (fixed.match(/\]/g) || []).length;
+
+          for (let i = 0; i < openBraces - closeBraces; i++) fixed += '}';
+          for (let i = 0; i < openBrackets - closeBrackets; i++) fixed += ']';
+          fixed = fixed.replace(/,\s*([}\]])/g, '$1');
+
+          try {
+            skillJson = JSON.parse(fixed);
+            console.log(`[SkillGen] Fallback 2 (auto-close brackets) succeeded`);
+          } catch (e2) {
+            console.error(`[SkillGen] All fallback falharam`);
+            return res.status(500).json({
+              error: "IA gerou JSON inválido mesmo após tentativas de correção",
+              raw: responseText.substring(0, 500)
+            });
+          }
         }
       } else {
         return res.status(500).json({
