@@ -228,18 +228,19 @@ async function runIngestion() {
     if (!feeds) return;
 
     // Balancear categorias: verificar quantos posts cada categoria tem
-    const { data: categoryCounts } = await supabase
+    const { data: postsData, error: postsError } = await supabase
       .from("posts")
-      .select("category")
-      .then(result => {
-        if (!result.data) return {};
-        const counts: Record<string, number> = {};
-        result.data.forEach((p: any) => {
-          const cat = p.category || "General";
-          counts[cat] = (counts[cat] || 0) + 1;
-        });
-        return counts;
+      .select("category");
+
+    const categoryCounts: Record<string, number> = {};
+    if (postsError) {
+      console.error(`>>> [RSS] Error fetching posts for category count: ${postsError.message}`);
+    } else if (postsData) {
+      postsData.forEach((p: any) => {
+        const cat = (p.category || "General").toLowerCase();
+        categoryCounts[cat] = (categoryCounts[cat] || 0) + 1;
       });
+    }
 
     // Configurar limites por categoria
     const MAX_POSTS_PER_CATEGORY = 200; // Teto por categoria
