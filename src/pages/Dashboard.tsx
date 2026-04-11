@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { supabase, signInWithGoogle } from "../lib/supabaseClient";
 import { motion } from "motion/react";
-import { Key, BarChart3, History, Copy, Check, Zap, AlertCircle, RefreshCw, Layers, Database } from "lucide-react";
+import { Key, BarChart3, History, Copy, Check, Zap, AlertCircle, RefreshCw, Layers, Database, Eye, EyeOff } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import api from "../lib/api";
 import { Post, AppStats } from "../types";
@@ -15,6 +15,7 @@ export default function Dashboard() {
   const [copied, setCopied] = useState(false);
   const [isRotating, setIsRotating] = useState(false);
   const [isUpgrading, setIsUpgrading] = useState(false);
+  const [showKey, setShowKey] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -233,11 +234,21 @@ export default function Dashboard() {
             {profile?.api_key ? (
               <div className="flex items-center gap-4 p-4 bg-black/40 border border-white/5 rounded-xl group/key">
                 <code className="flex-1 text-neon-cyan font-mono text-sm break-all">
-                  {profile.api_key}
+                  {showKey ? profile.api_key : "••••••••••••••••••••••••••••••••"}
                 </code>
-                <button onClick={() => copyToClipboard(profile.api_key)} className="p-2 hover:bg-white/5 rounded-lg transition-colors" title="Copy to clipboard">
-                  {copied ? <Check className="w-5 h-5 text-green-400" /> : <Copy className="w-5 h-5 text-gray-400" />}
-                </button>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setShowKey(!showKey)}
+                    className="p-2 hover:bg-white/5 rounded-lg transition-colors text-gray-400 hover:text-white"
+                    title={showKey ? "Hide API Key" : "Show API Key"}
+                  >
+                    {showKey ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  </button>
+                  <button onClick={() => copyToClipboard(profile.api_key)} className="p-2 hover:bg-white/5 rounded-lg transition-colors" title="Copy to clipboard">
+                    {copied ? <Check className="w-5 h-5 text-green-400" /> : <Copy className="w-5 h-5 text-gray-400" />}
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center p-8 bg-black/20 border-2 border-dashed border-white/10 rounded-xl">
