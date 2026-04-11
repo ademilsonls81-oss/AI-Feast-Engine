@@ -640,8 +640,7 @@ Rules:
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt }
         ],
-        response_format: { type: "json_object" },
-        temperature: 0.2,
+        temperature: 0.1,
         max_tokens: 4096
       })
     });
@@ -670,8 +669,8 @@ Rules:
       console.error(`[SkillGen] JSON parse error: ${parseError.message}`);
       console.error(`[SkillGen] Raw response (first 500 chars): ${responseText.substring(0, 500)}`);
 
-      // Fallback 1: extrair JSON com regex
-      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+      // Fallback 1: extrair JSON com regex greedy (pega tudo entre primeiro { e último })
+      const jsonMatch = responseText.match(/^\s*\{[\s\S]*\}\s*$/);
       if (jsonMatch) {
         let cleaned = jsonMatch[0]
           .replace(/,\s*([}\]])/g, '$1')  // Remove trailing commas
@@ -698,7 +697,8 @@ Rules:
             skillJson = JSON.parse(fixed);
             console.log(`[SkillGen] Fallback 2 (auto-close brackets) succeeded`);
           } catch (e2) {
-            console.error(`[SkillGen] All fallback falharam`);
+            console.error(`[SkillGen] All fallback falharam. Open/close: {${openBraces}/${closeBraces} [${openBrackets}/${closeBrackets}`);
+            console.error(`[SkillGen] Fixed JSON: ${fixed.substring(0, 500)}`);
             return res.status(500).json({
               error: "IA gerou JSON inválido mesmo após tentativas de correção",
               raw: responseText.substring(0, 500)
