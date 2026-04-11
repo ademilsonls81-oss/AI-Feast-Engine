@@ -613,21 +613,14 @@ app.post("/api/admin/skills/generate", checkAdminSecret, async (req, res) => {
 
     console.log(`[SkillGen] Gerando skill com prompt: ${prompt.substring(0, 100)}...`);
 
-    const systemPrompt = `You are a JSON API. Return ONLY raw JSON, no markdown, no backticks, no explanation. Just the JSON object.`;
+    const systemPrompt = `You are a JSON API. Return ONLY raw JSON, no markdown, no backticks, no explanation.`;
 
-    const userPrompt = `Generate a skill JSON for: "${prompt}"
+    const userPrompt = `Generate a skill for: "${prompt}"
 
-Return exactly this structure. Keep all string values SHORT. Maximum 100 characters per field.
-{"id":"snake_case","name":"Title","slug":"kebab-case","description":"max 100 chars","long_description":"max 200 chars","category":"analysis","tags":["tag1","tag2","tag3"],"input_schema":{"type":"object","properties":{"text":{"type":"string"}}},"output_schema":{"type":"object","properties":{"result":{"type":"object"}}},"risk_level":"low","install_command":"npx aifeast slug","run_command":"npx aifeast run slug"}
+Return ONLY this compact JSON on ONE line, no spaces, no newlines:
+{"id":"x","name":"X","slug":"x","desc":"max 80 chars","category":"analysis","tags":["a","b"],"risk":"low"}`;
 
-Rules:
-- description: MAX 100 characters
-- long_description: MAX 200 characters
-- tags: MAX 3 items
-- input_schema: MAX 1-2 properties
-- output_schema: MAX 1-2 properties`;
-
-    // Chamar Groq com modelo ativo e max_tokens adequado
+    // Chamar Groq
     const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -641,7 +634,7 @@ Rules:
           { role: "user", content: userPrompt }
         ],
         temperature: 0.1,
-        max_tokens: 4096
+        max_tokens: 1024
       })
     });
 
@@ -667,98 +660,63 @@ Rules:
       skillJson = JSON.parse(responseText);
     } catch (parseError: any) {
       console.error(`[SkillGen] JSON parse error: ${parseError.message}`);
-      console.error(`[SkillGen] Raw response (first 500 chars): ${responseText.substring(0, 500)}`);
-
-      // Fallback 1: extrair JSON com regex greedy (pega tudo entre primeiro { e último })
-      const jsonMatch = responseText.match(/^\s*\{[\s\S]*\}\s*$/);
-      if (jsonMatch) {
-        let cleaned = jsonMatch[0]
-          .replace(/,\s*([}\]])/g, '$1')  // Remove trailing commas
-          .replace(/\n\s*\n/g, '\n');     // Remove linhas vazias
-        try {
-          skillJson = JSON.parse(cleaned);
-          console.log(`[SkillGen] Fallback 1 (regex + clean) succeeded`);
-        } catch (e) {
-          console.log(`[SkillGen] Fallback 1 also failed, trying Fallback 2...`);
-
-          // Fallback 2: Tentar completar JSON truncado
-          let fixed = cleaned;
-          // Fechar chaves/colchetes abertos
-          const openBraces = (fixed.match(/{/g) || []).length;
-          const closeBraces = (fixed.match(/}/g) || []).length;
-          const openBrackets = (fixed.match(/\[/g) || []).length;
-          const closeBrackets = (fixed.match(/\]/g) || []).length;
-
-          for (let i = 0; i < openBraces - closeBraces; i++) fixed += '}';
-          for (let i = 0; i < openBrackets - closeBrackets; i++) fixed += ']';
-          fixed = fixed.replace(/,\s*([}\]])/g, '$1');
-
-          try {
-            skillJson = JSON.parse(fixed);
-            console.log(`[SkillGen] Fallback 2 (auto-close brackets) succeeded`);
-          } catch (e2) {
-            console.error(`[SkillGen] All fallback falharam. Open/close: {${openBraces}/${closeBraces} [${openBrackets}/${closeBrackets}`);
-            console.error(`[SkillGen] Fixed JSON: ${fixed.substring(0, 500)}`);
-            return res.status(500).json({
-              error: "IA gerou JSON inválido mesmo após tentativas de correção",
-              raw: responseText.substring(0, 500)
-            });
-          }
-        }
-      } else {
-        return res.status(500).json({
-          error: "IA não retornou JSON válido",
-          raw: responseText.substring(0, 500)
-        });
+      // Fallback: auto-close brackets
+      let fixed = responseText.replace(/,\s*([}\]])/g, '$1');
+      const openB = (fixed.match(/{/g) || []).length;
+      const closeB = (fixed.match(/}/g) || []).length;
+      for (let i = 0; i < openB - closeB; i++) fixed += '}';
+      try {
+        skillJson = JSON.parse(fixed);
+      } catch (e2) {
+        return res.status(500).json({ error: "IA gerou JSON inválido", raw: responseText.substring(0, 500) });
       }
     }
 
-    // Validar campos obrigatórios
-    const requiredFields = ['id', 'name', 'slug', 'description', 'category', 'tags', 'input_schema', 'output_schema', 'risk_level'];
-    const missingFields = requiredFields.filter(f => !skillJson[f]);
+    // Preencher campos ausentes com defaults
+    const categoryMap: Record<string, string> = {
+      dev: 'development', code: 'development', tech: 'development',
+      content: 'content', write: 'content', text: 'content',
+      auto: 'automation', bot: 'automation', workflow: 'automation',
+      analysis: 'analysis', analyze: 'analysis', data: 'analysis',
+      security: 'security', auth: 'security', vuln: 'security'
+    };
 
-    if (missingFields.length > 0) {
-      return res.status(422).json({
-        error: "Skill gerada está incompleta",
-        missing: missingFields,
-        raw: responseText.substring(0, 500)
-      });
-    }
+    const rawCategory = (skillJson.category || skillJson.cat || 'analysis').toLowerCase();
+    const category = Object.entries(categoryMap).find(([key]) => rawCategory.includes(key))?.[1] || 'analysis';
 
-    // Validar categoria
-    const validCategories = ['development', 'content', 'automation', 'analysis', 'security'];
-    if (!validCategories.includes(skillJson.category)) {
-      return res.status(422).json({ error: "Categoria inválida", valid: validCategories });
-    }
-
-    // Validar risk_level
-    const validRisks = ['low', 'medium', 'high'];
-    if (!validRisks.includes(skillJson.risk_level)) {
-      return res.status(422).json({ error: "Risk level inválido", valid: validRisks });
-    }
-
-    // Gerar slug se não existir
-    if (!skillJson.slug) {
-      skillJson.slug = skillJson.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-    }
+    const skill = {
+      id: skillJson.id || skillJson.name?.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/_/g, '') || `skill_${Date.now()}`,
+      name: skillJson.name || skillJson.title || 'New Skill',
+      slug: skillJson.slug || skillJson.id?.replace(/_/g, '-') || skillJson.name?.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'new-skill',
+      description: skillJson.desc || skillJson.description || 'No description',
+      long_description: skillJson.long_description || skillJson.desc || skillJson.description || 'No detailed description',
+      category: category,
+      tags: Array.isArray(skillJson.tags) ? skillJson.tags.slice(0, 3) : ['skill'],
+      input_schema: { type: 'object', properties: { input: { type: 'string', description: 'Input for the skill' } } },
+      output_schema: { type: 'object', properties: { result: { type: 'object', description: 'Result from the skill' } } },
+      code: `// TODO: Implement ${skillJson.name || skillJson.id || 'skill'}`,
+      risk_level: ['low', 'medium', 'high'].includes(skillJson.risk || skillJson.risk_level) ? (skillJson.risk || skillJson.risk_level) : 'low',
+      install_command: `npx aifeast ${skillJson.slug || skillJson.id || 'new-skill'}`,
+      run_command: `npx aifeast run ${skillJson.slug || skillJson.id || 'new-skill'}`
+    };
 
     // Salvar no banco
     const { data: savedSkill, error: dbError } = await supabase
       .from("skills")
       .insert({
-        id: skillJson.id,
-        name: skillJson.name,
-        slug: skillJson.slug,
-        description: skillJson.description,
-        long_description: skillJson.long_description || skillJson.description,
-        category: skillJson.category,
-        tags: skillJson.tags,
-        input_schema: skillJson.input_schema,
-        output_schema: skillJson.output_schema,
-        code: skillJson.code || '',
-        install_command: skillJson.install_command || `npx aifeast ${skillJson.slug}`,
-        run_command: skillJson.run_command || `npx aifeast run ${skillJson.slug}`,
-        risk_level: skillJson.risk_level,
+        id: skill.id,
+        name: skill.name,
+        slug: skill.slug,
+        description: skill.description,
+        long_description: skill.long_description,
+        category: skill.category,
+        tags: skill.tags,
+        input_schema: skill.input_schema,
+        output_schema: skill.output_schema,
+        code: skill.code,
+        install_command: skill.install_command,
+        run_command: skill.run_command,
+        risk_level: skill.risk_level,
         verified: false,
         is_active: true
       })
