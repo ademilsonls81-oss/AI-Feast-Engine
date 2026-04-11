@@ -620,7 +620,7 @@ app.post("/api/admin/skills/generate", checkAdminSecret, async (req, res) => {
 Return exactly this structure:
 {"id":"snake_case","name":"Title","slug":"kebab-case","description":"one sentence","long_description":"two sentences","category":"analysis","tags":["tag1","tag2"],"input_schema":{"type":"object","properties":{"text":{"type":"string"}}},"output_schema":{"type":"object","properties":{"result":{"type":"object"}}},"risk_level":"low","install_command":"npx aifeast slug","run_command":"npx aifeast run slug"}`;
 
-    // Chamar Groq com modelo mixtral
+    // Chamar Groq com modelo ativo (mixtral foi descontinuado)
     const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -628,7 +628,7 @@ Return exactly this structure:
         "Authorization": `Bearer ${process.env.GROQ_API_KEY}`
       },
       body: JSON.stringify({
-        model: "mixtral-8x7b-32768",
+        model: "llama-3.3-70b-versatile",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt }
