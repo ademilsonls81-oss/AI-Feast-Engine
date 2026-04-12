@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git pull *)",
+      "Bash(npx *)",
+      "Bash(npm run *)",
+      "Bash(findstr *)",
+      "Bash(type *)",
+      "Bash(curl *)"
+    ]
+  },
+  "$version": 3
+}

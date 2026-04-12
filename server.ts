@@ -713,8 +713,8 @@ Return ONLY this JSON object with ALL fields (no markdown, no extra text):
       input_schema: skillJson.input_schema,
       output_schema: skillJson.output_schema,
       code: skillJson.code,
-      install_command: install || `npx aifeast ${skillJson.slug}`,
-      run_command: run || `npx aifeast run ${skillJson.slug}`,
+      install_command: `npx aifeast ${skillJson.slug}`,
+      run_command: `npx aifeast run ${skillJson.slug}`,
       risk_level: riskLevel,
       verified: false,
       is_active: true
