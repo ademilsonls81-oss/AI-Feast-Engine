@@ -43,11 +43,16 @@ export async function importSkills(
     try {
       // REGRA: repo_url já existe com slug diferente → skip
       if (skill.repo_url) {
-        const { data: existingByUrl } = await supabase
+        const { data: existingByUrl, error: urlError } = await supabase
           .from("skills")
           .select("slug")
           .eq("repo_url", skill.repo_url)
-          .single();
+          .maybeSingle();
+
+        if (urlError) {
+          report.errors.push(`Failed to check repo_url for "${skill.name}": ${urlError.message}`);
+          continue;
+        }
 
         if (existingByUrl && existingByUrl.slug !== skill.slug) {
           report.skipped++;
@@ -60,11 +65,16 @@ export async function importSkills(
       }
 
       // Verificar se skill já existe por slug
-      const { data: existing } = await supabase
+      const { data: existing, error: slugError } = await supabase
         .from("skills")
         .select("*")
         .eq("slug", skill.slug)
-        .single();
+        .maybeSingle();
+
+      if (slugError) {
+        report.errors.push(`Failed to check slug for "${skill.name}": ${slugError.message}`);
+        continue;
+      }
 
       if (existing) {
         // REGRA: skill existente com source = 'manual' → SKIP (não sobrescrever)

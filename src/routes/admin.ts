@@ -332,67 +332,81 @@ router.post("/skills/import", checkAdmin, async (req, res) => {
 
     console.log(`[Import] Starting pipeline${dryRun ? " (DRY RUN)" : ""}...`);
 
-    // 1. Discovery
-    const repos = await discoverRepos();
-    console.log(`[Import] Discovered ${repos.length} repos`);
+    // Timeout de segurança: 5 minutos para todo o pipeline
+    const pipelineTimeout = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("Pipeline timeout after 5 minutes — GitHub API may be down")), 5 * 60 * 1000)
+    );
 
-    // 2. Extract + Normalize + Validate
-    const validatedSkills: any[] = [];
-    let extractedCount = 0;
+    const result = await Promise.race([
+      (async () => {
+        // 1. Discovery
+        const repos = await discoverRepos();
+        console.log(`[Import] Discovered ${repos.length} repos`);
 
-    for (const repo of repos.slice(0, 5)) {
-      const rawSkills = await extractSkillsFromRepo(repo);
-      extractedCount += rawSkills.length;
+        // 2. Extract + Normalize + Validate
+        const validatedSkills: any[] = [];
+        let extractedCount = 0;
 
-      for (const raw of rawSkills.slice(0, 3)) {
-        const normalized = normalizeSkill(raw);
-        const result = await validateSkill(normalized, groqApiKey);
-        validatedSkills.push(result);
+        for (const repo of repos.slice(0, 5)) {
+          const rawSkills = await extractSkillsFromRepo(repo);
+          extractedCount += rawSkills.length;
 
-        await new Promise(r => setTimeout(r, 300));
-      }
-    }
+          for (const raw of rawSkills.slice(0, 3)) {
+            const normalized = normalizeSkill(raw);
+            const result = await validateSkill(normalized, groqApiKey);
+            validatedSkills.push(result);
 
-    const approved = validatedSkills.filter(s => s.approved);
-    console.log(`[Import] ${approved.length} skills approved out of ${validatedSkills.length} validated`);
-
-    // 3. Import (ou dry run)
-    let report;
-    if (dryRun) {
-      // Simular import sem salvar
-      report = {
-        inserted: approved.length,
-        updated: 0,
-        skipped: validatedSkills.length - approved.length,
-        errors: [],
-        details: {
-          inserted: approved.map(s => s.skill.name),
-          updated: [],
-          skipped: validatedSkills.filter(s => !s.approved).map(s => ({
-            name: s.skill.name,
-            reason: `score: ${s.score}, approved: ${s.approved}`
-          }))
+            await new Promise(r => setTimeout(r, 300));
+          }
         }
-      };
-    } else {
-      // Import real
-      report = await importSkills(approved);
-    }
 
-    res.json({
-      dry_run: dryRun,
-      discovered: repos.length,
-      extracted: extractedCount,
-      approved: approved.length,
-      inserted: report.inserted,
-      updated: report.updated,
-      skipped: report.skipped,
-      errors: report.errors,
-      details: report.details
-    });
+        const approved = validatedSkills.filter(s => s.approved);
+        console.log(`[Import] ${approved.length} skills approved out of ${validatedSkills.length} validated`);
+
+        // 3. Import (ou dry run)
+        let report;
+        if (dryRun) {
+          report = {
+            inserted: approved.length,
+            updated: 0,
+            skipped: validatedSkills.length - approved.length,
+            errors: [],
+            details: {
+              inserted: approved.map(s => s.skill.name),
+              updated: [],
+              skipped: validatedSkills.filter(s => !s.approved).map(s => ({
+                name: s.skill.name,
+                reason: `score: ${s.score}, approved: ${s.approved}`
+              }))
+            }
+          };
+        } else {
+          report = await importSkills(approved);
+        }
+
+        return {
+          dry_run: dryRun,
+          discovered: repos.length,
+          extracted: extractedCount,
+          approved: approved.length,
+          inserted: report.inserted,
+          updated: report.updated,
+          skipped: report.skipped,
+          errors: report.errors,
+          details: report.details
+        };
+      })(),
+      pipelineTimeout
+    ]);
+
+    res.json(result);
 
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    if (err.message.includes("Pipeline timeout")) {
+      res.status(504).json({ error: err.message });
+    } else {
+      res.status(500).json({ error: err.message });
+    }
   }
 });
 
