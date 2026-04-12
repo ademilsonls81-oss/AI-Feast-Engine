@@ -17,6 +17,7 @@ import { globalIpLimit, apiKeyRateLimit } from "./src/middleware/rateLimit.js";
 import adminRouter from "./src/routes/admin.js";
 import skillsRouter from "./src/routes/skills.js";
 import publicRouter from "./src/routes/public.js";
+import { startCronJob } from "./src/services/skillScheduler.js";
 
 // ==========================================
 // SECURITY: Timing-safe string comparison
@@ -382,3 +383,12 @@ async function startServer() {
 }
 
 startServer();
+
+// Start skill import cron job (production only)
+if (process.env.NODE_ENV === "production") {
+  try {
+    startCronJob();
+  } catch (err: any) {
+    console.error(`[Scheduler] Failed to start cron job: ${err.message}`);
+  }
+}

@@ -10,6 +10,8 @@ export interface ValidatedSkill {
 }
 
 export interface ImportReport {
+  discovered: number;
+  extracted: number;
   inserted: number;
   updated: number;
   skipped: number;
@@ -22,9 +24,12 @@ export interface ImportReport {
 }
 
 export async function importSkills(
-  validatedSkills: ValidatedSkill[]
+  validatedSkills: ValidatedSkill[],
+  extra: { discovered?: number; extracted?: number } = {}
 ): Promise<ImportReport> {
   const report: ImportReport = {
+    discovered: extra.discovered || 0,
+    extracted: extra.extracted || 0,
     inserted: 0,
     updated: 0,
     skipped: 0,

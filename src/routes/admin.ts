@@ -381,7 +381,7 @@ router.post("/skills/import", checkAdmin, async (req, res) => {
             }
           };
         } else {
-          report = await importSkills(approved);
+          report = await importSkills(approved, { discovered: repos.length, extracted: extractedCount });
         }
 
         return {
@@ -407,6 +407,53 @@ router.post("/skills/import", checkAdmin, async (req, res) => {
     } else {
       res.status(500).json({ error: err.message });
     }
+  }
+});
+
+// POST /api/admin/skills/import/manual - Trigger pipeline manualmente
+// IMPORTANTE: Rota literal DEVE vir antes de rotas com :id
+router.post("/skills/import/manual", checkAdmin, async (req, res) => {
+  try {
+    const { runImportPipeline, isPipelineRunning } = await import("../services/skillScheduler.js");
+    const dryRun = (req.body as any)?.dryRun === true;
+
+    // Proteção contra execução simultânea
+    if (isPipelineRunning() && !dryRun) {
+      return res.status(409).json({ error: "Import already in progress" });
+    }
+
+    const log = await runImportPipeline("manual", dryRun);
+
+    res.json({
+      message: dryRun ? "Dry run completo — nada salvo" : "Import concluído",
+      log
+    });
+
+  } catch (err: any) {
+    if (err.message.includes("already in progress")) {
+      res.status(409).json({ error: err.message });
+    } else {
+      res.status(500).json({ error: err.message });
+    }
+  }
+});
+
+// GET /api/admin/skills/import/logs - Últimos 20 logs de importação
+// IMPORTANTE: Rota literal DEVE vir antes de rotas com :id
+router.get("/skills/import/logs", checkAdmin, async (_req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from("skill_import_logs")
+      .select("*")
+      .order("started_at", { ascending: false })
+      .limit(20);
+
+    if (error) return res.status(500).json({ error: error.message });
+
+    res.json({ logs: data || [] });
+
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
   }
 });
 
