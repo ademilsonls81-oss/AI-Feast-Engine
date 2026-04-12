@@ -30,16 +30,24 @@ function cacheSet(key: string, data: any, ttl: number) {
 }
 
 // GET /api/skills - Listar skills ativas
-router.get("/", async (_req, res) => {
+router.get("/", async (req, res) => {
   try {
-    const cached = cacheGet("skills:list");
+    const { source, verified } = req.query;
+    let query = supabase.from("skills").select("*").eq("is_active", true);
+
+    if (source) query = query.eq("source", source);
+    if (verified === "true") query = query.eq("verified", true);
+    query = query.order("created_at", { ascending: false });
+
+    const cachedKey = `skills:list:${source || "all"}:${verified || "all"}`;
+    const cached = cacheGet(cachedKey);
     if (cached) return res.json(cached);
 
-    const { data: skills, error } = await supabase.from("skills").select("*").eq("is_active", true).order("created_at", { ascending: false });
+    const { data: skills, error } = await query;
     if (error) return res.status(500).json({ error: "Failed to fetch skills" });
 
     const result = { skills: skills || [], total: skills?.length || 0, categories: ["development", "content", "automation", "analysis", "security"] };
-    cacheSet("skills:list", result, 15 * 60 * 1000);
+    cacheSet(cachedKey, result, 15 * 60 * 1000);
     res.json(result);
   } catch (err: any) {
     res.status(500).json({ error: "Failed to fetch skills" });

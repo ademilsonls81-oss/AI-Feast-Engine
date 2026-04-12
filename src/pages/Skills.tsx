@@ -13,6 +13,7 @@ interface Skill {
   tags: string[];
   risk_level: string;
   verified: boolean;
+  source?: string;
   downloads: number;
   input_schema?: any;
   output_schema?: any;
@@ -23,11 +24,13 @@ interface Skill {
 }
 
 const categories = ["All", "development", "content", "automation", "analysis", "security"];
+const originFilters = ["All", "AI Verified", "Community Imported"];
 
 export default function Skills() {
   const [skills, setSkills] = useState<Skill[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("All");
+  const [originFilter, setOriginFilter] = useState("All");
   const [search, setSearch] = useState("");
   const [selectedSkill, setSelectedSkill] = useState<Skill | null>(null);
   const [copiedCmd, setCopiedCmd] = useState("");
@@ -45,7 +48,11 @@ export default function Skills() {
 
   async function fetchSkills() {
     try {
-      const res = await api.get("/api/skills");
+      const params: Record<string, string> = {};
+      if (originFilter === "AI Verified") params.verified = "true";
+      if (originFilter === "Community Imported") params.source = "github";
+
+      const res = await api.get("/api/skills", { params });
       setSkills(res.data.skills || []);
     } catch (err) {
       console.error("Error fetching skills:", err);
@@ -53,6 +60,8 @@ export default function Skills() {
       setLoading(false);
     }
   }
+
+  useEffect(() => { fetchSkills(); }, [originFilter]);
 
   async function fetchEvaluation(slug: string) {
     try {
@@ -135,6 +144,24 @@ export default function Skills() {
               </button>
             ))}
           </div>
+          {/* Origin Filter */}
+          <div className="flex items-center gap-2 overflow-x-auto pb-2 md:pb-0 px-2 w-full md:w-auto">
+            {originFilters.map((of) => (
+              <button
+                key={of}
+                onClick={() => setOriginFilter(of)}
+                className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all whitespace-nowrap ${
+                  originFilter === of
+                    ? of === "AI Verified" ? "bg-green-500/20 text-green-400 border border-green-500/30"
+                      : of === "Community Imported" ? "bg-blue-500/20 text-blue-400 border border-blue-500/30"
+                      : "bg-neon-cyan/20 text-neon-cyan border border-neon-cyan/30"
+                    : "text-gray-500 hover:text-gray-300 hover:bg-white/5 border border-transparent"
+                }`}
+              >
+                {of === "AI Verified" && "🛡️ "}{of === "Community Imported" && "🌐 "}{of}
+              </button>
+            ))}
+          </div>
           <div className="relative w-full md:w-64 px-2">
             <Search className="absolute left-5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
             <input
@@ -173,9 +200,22 @@ export default function Skills() {
                     </div>
                   </div>
                   <div className="flex items-center gap-1">
-                    {skill.verified && (
-                      <span className="p-1 bg-neon-cyan/10 rounded" title="Verified">
-                        <Shield className="w-3.5 h-3.5 text-neon-cyan" />
+                    {/* AI Verified Badge — destacado */}
+                    {skill.verified && skill.source !== "github" && (
+                      <span className="px-2 py-0.5 rounded-full text-[8px] font-bold bg-green-500/20 text-green-400 border border-green-500/30 flex items-center gap-0.5" title="AI Verified">
+                        <Shield className="w-2.5 h-2.5" /> VERIFIED
+                      </span>
+                    )}
+                    {/* Community Imported Badge */}
+                    {skill.source === "github" && !skill.verified && (
+                      <span className="px-2 py-0.5 rounded-full text-[8px] font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30" title="Community Imported">
+                        🌐 COMMUNITY
+                      </span>
+                    )}
+                    {/* Verified GitHub skill */}
+                    {skill.verified && skill.source === "github" && (
+                      <span className="px-2 py-0.5 rounded-full text-[8px] font-bold bg-green-500/20 text-green-400 border border-green-500/30 flex items-center gap-0.5" title="AI Verified">
+                        <Shield className="w-2.5 h-2.5" /> VERIFIED
                       </span>
                     )}
                   </div>

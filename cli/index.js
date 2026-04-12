@@ -220,6 +220,86 @@ async function cmdConfig(flags) {
   log('');
 }
 
+async function cmdSearch(query) {
+  if (!query) {
+    log('❌ Uso: npx aifeast search "termo de busca"', 'red');
+    process.exit(1);
+  }
+
+  log(`\n🔍 Buscando skills: ${colors.bold}${query}\n`, 'cyan');
+  try {
+    const res = await axios.get(`${API_BASE}/api/skills/search`, { params: { q: query } });
+    const { skills, total } = res.data;
+
+    if (!skills || skills.length === 0) {
+      log('Nenhuma skill encontrada.', 'yellow');
+      return;
+    }
+
+    log(`📦 Resultados (${total}):\n`, 'bold');
+
+    skills.slice(0, 10).forEach((skill, i) => {
+      const riskColor = skill.risk_level === 'low' ? 'green' : skill.risk_level === 'medium' ? 'yellow' : 'red';
+      const badge = skill.verified ? ` ${colors.green}[AI Verified]${colors.reset}` : skill.source === 'github' ? ` ${colors.cyan}[Community]${colors.reset}` : '';
+      log(`  ${i + 1}. ${colors.bold}${skill.name}${colors.reset}${badge}`, 'cyan');
+      log(`     Slug: ${colors.cyan}${skill.slug}${colors.reset}`);
+      log(`     ${skill.description || 'Sem descrição'}`, 'gray');
+      log(`     Categoria: ${skill.category} | Risco: ${colors[riskColor]}${skill.risk_level}${colors.reset}`, 'gray');
+      log('');
+    });
+  } catch (err) {
+    log(`❌ Erro ao buscar skills: ${err.message}`, 'red');
+    process.exit(1);
+  }
+}
+
+async function cmdExecuteBySlug(slug) {
+  if (!slug) return false;
+
+  const config = getConfig();
+  if (!config.apiKey) {
+    log('❌ API Key não configurada.', 'red');
+    log('   Execute: npx aifeast config --key SUA_API_KEY', 'yellow');
+    process.exit(1);
+  }
+
+  try {
+    const res = await axios.get(`${API_BASE}/api/skills/${slug}`);
+    const skill = res.data;
+
+    log(`\n🔍 Skill encontrada: ${colors.bold}${skill.name}${colors.reset}`, 'cyan');
+    log(`   ${skill.description}`, 'gray');
+    log(`   Risco: ${skill.risk_level} | Downloads: ${skill.downloads || 0}`, 'gray');
+
+    // Executar diretamente
+    log(`\n🚀 Executando skill: ${colors.bold}${slug}\n`, 'cyan');
+    const execRes = await axios.post(
+      `${API_BASE}/api/skills/${slug}/execute`,
+      {},
+      { headers: { 'X-API-Key': config.apiKey, 'Content-Type': 'application/json' } }
+    );
+
+    const result = execRes.data;
+    if (result.status === 'executed' || result.skill_id) {
+      log(`  ${colors.bold}${colors.green}✅ Skill executada com sucesso!${colors.reset}`, 'green');
+      log(`  ${colors.bold}Skill:${colors.reset} ${result.skill_name || slug}`);
+      log(`  ${colors.bold}Requests restantes:${colors.reset} ${result.usage_remaining || 'N/A'}`, 'gray');
+      if (result.message) log(`  ${colors.bold}Mensagem:${colors.reset} ${result.message}`, 'gray');
+      log('');
+    } else {
+      log(`  ${colors.yellow}Resposta:${colors.reset}`, 'yellow');
+      log(JSON.stringify(result, null, 2));
+    }
+    return true;
+  } catch (err) {
+    if (err.response && err.response.status === 404) {
+      return false; // Skill não encontrada — tratar como comando inválido
+    }
+    log(`❌ Erro: ${err.message}`, 'red');
+    process.exit(1);
+  }
+}
+
 // ============================================
 // HELP
 // ============================================
@@ -230,12 +310,16 @@ function showHelp() {
   log('  list                          Lista todas as skills disponíveis', 'cyan');
   log('  info <skill-slug>             Mostra detalhes de uma skill', 'cyan');
   log('  run <skill-slug> --input ""   Executa uma skill com input', 'cyan');
+  log('  search "termo"                Busca skills por nome ou descrição', 'cyan');
   log('  config --key API_KEY          Configura sua API Key', 'cyan');
+  log('  <skill-slug>                  Executa skill diretamente (atalho)', 'cyan');
   log('  help                          Mostra esta ajuda', 'cyan');
   log('\nExemplos:\n', 'bold');
   log('  npx aifeast list', 'gray');
   log('  npx aifeast info summarize-article', 'gray');
   log('  npx aifeast run summarize-article --input "https://example.com/artigo"', 'gray');
+  log('  npx aifeast search "json"', 'gray');
+  log('  npx aifeast json-validator', 'gray');
   log('  npx aifeast config --key af_xxxxxxxxxxxxx', 'gray');
   log('');
 }
@@ -257,6 +341,9 @@ async function main() {
     case 'run':
       await cmdRun(slug, flags);
       break;
+    case 'search':
+      await cmdSearch(slug || flags.q);
+      break;
     case 'config':
       await cmdConfig(flags);
       break;
@@ -274,8 +361,12 @@ async function main() {
       break;
     default:
       if (cmd) {
-        log(`❌ Comando desconhecido: ${cmd}`, 'red');
-        log('   Execute: npx aifeast help\n', 'yellow');
+        // Tentar como slug de skill
+        const found = await cmdExecuteBySlug(cmd);
+        if (!found) {
+          log(`❌ Comando desconhecido: ${cmd}`, 'red');
+          log('   Execute: npx aifeast help\n', 'yellow');
+        }
       } else {
         showHelp();
       }
