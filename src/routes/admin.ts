@@ -203,6 +203,39 @@ Return ONLY this JSON object with ALL fields (no markdown, no extra text):
   }
 });
 
+// GET /api/admin/skills/discover - Descoberta automática de skills (dry run)
+// IMPORTANTE: Rota literal DEVE vir antes de rotas com :id
+router.get("/skills/discover", checkAdmin, async (_req, res) => {
+  try {
+    const { discoverRepos } = await import("../services/githubDiscovery.js");
+    const { extractSkillsFromRepo } = await import("../services/skillExtractor.js");
+
+    console.log("[Discovery] Starting dry run...");
+    const repos = await discoverRepos();
+
+    const results = [];
+    for (const repo of repos.slice(0, 3)) {
+      const skills = await extractSkillsFromRepo(repo);
+      results.push({
+        repo: repo.full_name,
+        stars: repo.stars,
+        skills_found: skills.length,
+        sample: skills.slice(0, 2)
+      });
+      await new Promise(r => setTimeout(r, 500));
+    }
+
+    res.json({
+      message: "Dry run completo — nada salvo no banco",
+      repos_analyzed: results.length,
+      results
+    });
+
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/admin/skills/:id/toggle
 router.post("/skills/:id/toggle", checkAdmin, async (req, res) => {
   try {
