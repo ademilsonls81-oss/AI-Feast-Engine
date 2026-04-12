@@ -1,1 +1,37 @@
-[]
+[
+  {
+    "data": "2026-04-11T23:59:00Z",
+    "agente": "Explorador",
+    "acao": "Analise completa da estrutura do projeto",
+    "detalhes": "server.ts: 1595 linhas, 24 endpoints, 10 problemas identificados. 15 arquivos .bak acumulados. Endpoints duplicados (feed v1/v2, stats v1/v2). Dependencias fantasmas (@google/generative-ai, @sentry/integrations). Supabase client instanciado 4 vezes separadamente.",
+    "severidade": "ALTO"
+  },
+  {
+    "data": "2026-04-11T23:59:00Z",
+    "agente": "Auditor",
+    "acao": "Auditoria de seguranca completa",
+    "detalhes": "17 vulnerabilidades encontradas: 3 CRITICAS (Stripe body corrompido, rotas duplicadas, SQL injection), 4 ALTAS (checkAdmin bypass, API key na URL, timing attack, RLS skills aberto), 5 MEDIAS (WebSocket sem protecao, double usage_count, body sem limite), 5 BAIXAS.",
+    "severidade": "CRITICO"
+  },
+  {
+    "data": "2026-04-11T23:59:00Z",
+    "agente": "Projetista",
+    "acao": "Analise de arquitetura e melhorias estruturais",
+    "detalhes": "server.ts monolitico (1595 linhas) deve ser dividido em 6+ modulos. Criar src/api/routes/, src/config/, src/lib/supabase.ts singleton. Remover 15 arquivos .bak. Mover setInterval para modulo separado. Adicionar .bak ao .gitignore.",
+    "severidade": "ALTO"
+  },
+  {
+    "data": "2026-04-11T23:59:00Z",
+    "agente": "Comunicador",
+    "acao": "Analise de UX e landing page",
+    "detalhes": "Landing page com stats hardcoded (300+ articles, 12 sources) que nao refletem realidade. Adicionar animacoes de loading. Melhorar pagina de Skills com mais detalhes. Adicionar pagina de status do sistema. Footer com links quebrados.",
+    "severidade": "MEDIO"
+  },
+  {
+    "data": "2026-04-11T23:59:00Z",
+    "agente": "Executor",
+    "acao": "Lista de correcoes prioritarias",
+    "detalhes": "10 correcoes identificadas: (1) Mover Stripe webhook antes de express.json(), (2) Corrigir checkAdmin, (3) Remover endpoints duplicados, (4) Corrigir RLS skills, (5) API key apenas via header, (6) timingSafeEqual, (7) Body size limit, (8) WebSocket protecao, (9) Double usage_count, (10) Refatorar server.ts em modulos.",
+    "severidade": "CRITICO"
+  }
+]
