@@ -236,6 +236,56 @@ router.get("/skills/discover", checkAdmin, async (_req, res) => {
   }
 });
 
+// POST /api/admin/skills/validate-batch - Normalizar + validar (dry run)
+// IMPORTANTE: Rota literal DEVE vir antes de rotas com :id
+router.post("/skills/validate-batch", checkAdmin, async (_req, res) => {
+  try {
+    const { discoverRepos } = await import("../services/githubDiscovery.js");
+    const { extractSkillsFromRepo } = await import("../services/skillExtractor.js");
+    const { normalizeSkill } = await import("../services/skillNormalizer.js");
+    const { validateSkill } = await import("../services/skillValidator.js");
+
+    const groqApiKey = process.env.GROQ_API_KEY || "";
+
+    console.log("[ValidateBatch] Starting...");
+    const repos = await discoverRepos();
+
+    const approved: any[] = [];
+    const rejected: any[] = [];
+
+    for (const repo of repos.slice(0, 5)) {
+      const rawSkills = await extractSkillsFromRepo(repo);
+
+      for (const raw of rawSkills.slice(0, 3)) {
+        const normalized = normalizeSkill(raw);
+        const result = await validateSkill(normalized, groqApiKey);
+
+        if (result.approved) {
+          approved.push(result.skill);
+        } else {
+          rejected.push({
+            name: result.skill.name,
+            reason: result.warnings
+          });
+        }
+
+        await new Promise(r => setTimeout(r, 300));
+      }
+    }
+
+    res.json({
+      message: "Validação concluída — nada salvo no banco ainda",
+      approved: approved.length,
+      rejected: rejected.length,
+      approved_skills: approved.slice(0, 5),
+      rejected_skills: rejected
+    });
+
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/admin/skills/:id/toggle
 router.post("/skills/:id/toggle", checkAdmin, async (req, res) => {
   try {
