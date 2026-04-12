@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
-import { Database, Plus, Trash2, Activity, List, ShieldCheck, Sparkles, Power, Eye, EyeOff } from "lucide-react";
+import { Database, Plus, Trash2, Activity, List, ShieldCheck, Sparkles, Power, Eye, EyeOff, Play, FileText, AlertCircle } from "lucide-react";
 import api from "../lib/api";
 
 interface Skill {
@@ -12,8 +12,24 @@ interface Skill {
   tags: string[];
   risk_level: string;
   is_active: boolean;
+  verified: boolean;
+  source?: string;
   downloads: number;
   created_at: string;
+}
+
+interface ImportLog {
+  id: number;
+  started_at: string;
+  finished_at: string;
+  discovered: number;
+  extracted: number;
+  approved: number;
+  inserted: number;
+  updated: number;
+  skipped: number;
+  errors: string[];
+  triggered_by: string;
 }
 
 export default function Admin() {
@@ -33,6 +49,12 @@ export default function Admin() {
   const [adminSecret, setAdminSecret] = useState(() => localStorage.getItem("adminSecret") || "");
   const [showAdminSecret, setShowAdminSecret] = useState(false);
   const [generatedSkillPreview, setGeneratedSkillPreview] = useState<any>(null);
+
+  // Import logs state
+  const [importLogs, setImportLogs] = useState<ImportLog[]>([]);
+  const [isImporting, setIsImporting] = useState(false);
+  const [dryRunResult, setDryRunResult] = useState<any>(null);
+  const [showDryRunModal, setShowDryRunModal] = useState(false);
 
 
   useEffect(() => {
@@ -84,6 +106,7 @@ export default function Admin() {
     // Fetch initial feeds
     fetchFeeds();
     fetchSkills();
+    fetchImportLogs();
 
     // Feeds subscription
     const feedsSub = supabase
@@ -234,6 +257,49 @@ export default function Admin() {
       alert("Erro ao deletar skill: " + (err.response?.data?.error || err.message));
     }
   };
+
+  // Import pipeline functions
+  async function fetchImportLogs() {
+    try {
+      const res = await api.get("/api/admin/skills/import/logs");
+      setImportLogs(res.data.logs || []);
+    } catch (err) {
+      console.error("Error fetching import logs:", err);
+    }
+  }
+
+  async function handleRunImport() {
+    if (!adminSecret) { alert("⚠️ Insira o Admin Secret"); return; }
+    setIsImporting(true);
+    try {
+      const res = await api.post("/api/admin/skills/import/manual", {}, {
+        headers: { "X-Admin-Secret": adminSecret }
+      });
+      alert(`Import concluído: ${res.data.log.inserted} inseridas, ${res.data.log.updated} atualizadas`);
+      fetchImportLogs();
+      fetchSkills();
+    } catch (err: any) {
+      alert("Erro no import: " + (err.response?.data?.error || err.message));
+    } finally {
+      setIsImporting(false);
+    }
+  }
+
+  async function handleDryRun() {
+    if (!adminSecret) { alert("⚠️ Insira o Admin Secret"); return; }
+    setIsImporting(true);
+    try {
+      const res = await api.post("/api/admin/skills/import/manual", { dryRun: true }, {
+        headers: { "X-Admin-Secret": adminSecret }
+      });
+      setDryRunResult(res.data.log);
+      setShowDryRunModal(true);
+    } catch (err: any) {
+      alert("Erro no dry run: " + (err.response?.data?.error || err.message));
+    } finally {
+      setIsImporting(false);
+    }
+  }
 
   const handleProcessBatch = async () => {
     if (!userId) return;
@@ -415,8 +481,14 @@ export default function Admin() {
                   <div className="flex-1 min-w-0 pr-4">
                     <div className="flex items-center gap-2 mb-1">
                       <span className="font-bold text-sm truncate">{skill.name}</span>
+                      {skill.verified && skill.source !== 'github' && (
+                        <span className="px-1.5 py-0.5 bg-green-500/20 text-green-400 text-[8px] rounded uppercase font-bold">AI Verified</span>
+                      )}
+                      {skill.source === 'github' && !skill.verified && (
+                        <span className="px-1.5 py-0.5 bg-blue-500/20 text-blue-400 text-[8px] rounded uppercase font-bold">Community</span>
+                      )}
                       {!skill.is_active && (
-                        <span className="px-1.5 py-0.5 bg-red-500/20 text-red-400 text-[8px] rounded uppercase font-bold">Inativa</span>
+                        <span className="px-1.5 py-0.5 bg-yellow-500/20 text-yellow-400 text-[8px] rounded uppercase font-bold">Aguardando revisão</span>
                       )}
                     </div>
                     <div className="text-[10px] text-gray-500 truncate">{skill.slug}</div>
@@ -454,6 +526,126 @@ export default function Admin() {
               )}
             </div>
           </div>
+
+          {/* Import Pipeline Section */}
+          <div className="p-8 bg-dark-card border border-white/10 rounded-3xl">
+            <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
+              <FileText className="w-5 h-5 text-neon-cyan" /> Import de Skills (GitHub)
+            </h2>
+
+            {/* Action Buttons */}
+            <div className="flex gap-4 mb-6">
+              <button
+                onClick={handleRunImport}
+                disabled={isImporting}
+                className="flex-1 py-3 bg-green-500/20 text-green-400 border border-green-500/30 rounded-xl font-bold hover:bg-green-500/30 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                <Play className="w-4 h-4" /> {isImporting ? "Rodando..." : "Rodar agora"}
+              </button>
+              <button
+                onClick={handleDryRun}
+                disabled={isImporting}
+                className="flex-1 py-3 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded-xl font-bold hover:bg-blue-500/30 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                <Eye className="w-4 h-4" /> Dry run
+              </button>
+            </div>
+
+            {/* Import Logs Table */}
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-gray-500 uppercase tracking-wider border-b border-white/5">
+                    <th className="text-left py-2 px-2">Data</th>
+                    <th className="text-left py-2 px-2">Trigger</th>
+                    <th className="text-center py-2 px-2">Desc.</th>
+                    <th className="text-center py-2 px-2">Insert.</th>
+                    <th className="text-center py-2 px-2">Upd.</th>
+                    <th className="text-center py-2 px-2">Skip</th>
+                    <th className="text-center py-2 px-2">Erros</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {importLogs.map(log => (
+                    <tr key={log.id} className={`border-b border-white/5 ${
+                      (log.errors && log.errors.length > 0) ? 'bg-red-500/5' : 'bg-green-500/5'
+                    }`}>
+                      <td className="py-2 px-2 text-gray-400 font-mono">{new Date(log.started_at).toLocaleString()}</td>
+                      <td className="py-2 px-2">
+                        <span className={`px-1.5 py-0.5 rounded text-[8px] uppercase font-bold ${
+                          log.triggered_by === 'manual' ? 'bg-purple-500/20 text-purple-400' : 'bg-gray-500/20 text-gray-400'
+                        }`}>{log.triggered_by}</span>
+                      </td>
+                      <td className="py-2 px-2 text-center text-gray-300">{log.discovered}</td>
+                      <td className="py-2 px-2 text-center text-green-400">{log.inserted}</td>
+                      <td className="py-2 px-2 text-center text-blue-400">{log.updated}</td>
+                      <td className="py-2 px-2 text-center text-yellow-400">{log.skipped}</td>
+                      <td className="py-2 px-2 text-center">
+                        {log.errors && log.errors.length > 0 ? (
+                          <span className="text-red-400 flex items-center justify-center gap-1">
+                            <AlertCircle className="w-3 h-3" /> {log.errors.length}
+                          </span>
+                        ) : (
+                          <span className="text-green-400">✓</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                  {importLogs.length === 0 && (
+                    <tr><td colSpan={7} className="text-center py-8 text-gray-600">Nenhum import executado ainda.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Dry Run Modal */}
+          {showDryRunModal && dryRunResult && (
+            <div className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setShowDryRunModal(false)}>
+              <div className="bg-dark-card border border-white/10 rounded-3xl max-w-2xl w-full max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+                <div className="p-6 border-b border-white/5 flex justify-between items-center">
+                  <h3 className="text-lg font-bold flex items-center gap-2"><Eye className="w-5 h-5 text-blue-400" /> Dry Run Result</h3>
+                  <button onClick={() => setShowDryRunModal(false)} className="p-2 hover:bg-white/5 rounded-lg"><EyeOff className="w-4 h-4" /></button>
+                </div>
+                <div className="p-6 space-y-4">
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="p-4 bg-black/30 rounded-xl text-center">
+                      <div className="text-2xl font-bold text-neon-cyan">{dryRunResult.discovered || 0}</div>
+                      <div className="text-[10px] text-gray-500 uppercase">Discovered</div>
+                    </div>
+                    <div className="p-4 bg-black/30 rounded-xl text-center">
+                      <div className="text-2xl font-bold text-green-400">{dryRunResult.approved || 0}</div>
+                      <div className="text-[10px] text-gray-500 uppercase">Approved</div>
+                    </div>
+                    <div className="p-4 bg-black/30 rounded-xl text-center">
+                      <div className="text-2xl font-bold text-yellow-400">{dryRunResult.skipped || 0}</div>
+                      <div className="text-[10px] text-gray-500 uppercase">Skipped</div>
+                    </div>
+                  </div>
+                  {dryRunResult.details?.inserted?.length > 0 && (
+                    <div>
+                      <h4 className="text-sm font-bold text-green-400 mb-2">Skills que seriam inseridas:</h4>
+                      <ul className="space-y-1">
+                        {dryRunResult.details.inserted.map((name: string, i: number) => (
+                          <li key={i} className="text-xs text-gray-300 bg-black/20 px-3 py-1.5 rounded">✓ {name}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {dryRunResult.details?.skipped?.length > 0 && (
+                    <div>
+                      <h4 className="text-sm font-bold text-yellow-400 mb-2">Skills que seriam ignoradas:</h4>
+                      <ul className="space-y-1">
+                        {dryRunResult.details.skipped.map((s: any, i: number) => (
+                          <li key={i} className="text-xs text-gray-400 bg-black/20 px-3 py-1.5 rounded">✗ {s.name} — {s.reason}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* AI Processing Control */}
           <div className="p-8 bg-dark-card border border-white/10 rounded-3xl">
