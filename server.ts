@@ -6,15 +6,17 @@ import path from "path";
 import { fileURLToPath } from "url";
 import cors from "cors";
 import Parser from "rss-parser";
-import { createClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
-import { queueService } from "./src/services/queueService.js";
-import { NextFunction, Request, Response } from "express";
-import { globalIpLimit, apiKeyRateLimit } from "./src/middleware/rateLimit.js";
-import { logAuditAction } from "./src/middleware/auditLog.js";
 import crypto from "crypto";
 import { WebSocketServer, WebSocket } from "ws";
 import * as Sentry from "@sentry/node";
+
+import { supabase } from "./src/lib/supabase.js";
+import { queueService } from "./src/services/queueService.js";
+import { globalIpLimit, apiKeyRateLimit } from "./src/middleware/rateLimit.js";
+import adminRouter from "./src/routes/admin.js";
+import skillsRouter from "./src/routes/skills.js";
+import publicRouter from "./src/routes/public.js";
 
 // ==========================================
 // SECURITY: Timing-safe string comparison
@@ -31,21 +33,9 @@ function safeCompare(a: string, b: string): boolean {
 }
 
 console.log(">>> AI FEAST ENGINE SERVER STARTING...");
-console.log(">>> QueueService imported successfully");
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
-const supabaseUrl = process.env.VITE_SUPABASE_URL || "";
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
-
-if (!supabaseUrl || !supabaseServiceKey) {
-  console.error("CRITICAL: Supabase credentials missing in .env");
-}
-
-const supabase = createClient(supabaseUrl, supabaseServiceKey, {
-  auth: { autoRefreshToken: false, persistSession: false }
-});
 
 // Sentry initialization
 if (process.env.SENTRY_DSN) {
@@ -59,34 +49,18 @@ if (process.env.SENTRY_DSN) {
   console.log(">>> Sentry DSN not configured, error tracking disabled");
 }
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "sk_test_mock", {
-  apiVersion: "2025-01-27.acacia" as any,
-});
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "sk_test_mock", { apiVersion: "2025-01-27.acacia" as any });
 
 // ==========================================
 // CACHE LAYER (Em memória)
 // ==========================================
-interface CacheEntry {
-  data: any;
-  timestamp: number;
-  ttl: number;
-}
-
+interface CacheEntry { data: any; timestamp: number; ttl: number; }
 const memoryCache: Record<string, CacheEntry> = {};
-const CACHE_TTL = {
-  stats: 5 * 60 * 1000,       // 5 min
-  feed: 10 * 60 * 1000,       // 10 min
-  verified: 15 * 60 * 1000,   // 15 min
-  search: 30 * 60 * 1000,     // 30 min
-};
 
 function cacheGet(key: string): any | null {
   const entry = memoryCache[key];
   if (!entry) return null;
-  if (Date.now() - entry.timestamp > entry.ttl) {
-    delete memoryCache[key];
-    return null;
-  }
+  if (Date.now() - entry.timestamp > entry.ttl) { delete memoryCache[key]; return null; }
   console.log(`[Cache] HIT: ${key}`);
   return entry.data;
 }
@@ -96,11 +70,9 @@ function cacheSet(key: string, data: any, ttl: number) {
   console.log(`[Cache] SET: ${key} (TTL: ${ttl/1000}s)`);
 }
 
-function cacheInvalidate(pattern?: string) {
+export function cacheInvalidate(pattern?: string) {
   if (pattern) {
-    Object.keys(memoryCache).forEach(key => {
-      if (key.includes(pattern)) delete memoryCache[key];
-    });
+    Object.keys(memoryCache).forEach(key => { if (key.includes(pattern)) delete memoryCache[key]; });
   } else {
     Object.keys(memoryCache).forEach(key => delete memoryCache[key]);
   }
@@ -108,45 +80,26 @@ function cacheInvalidate(pattern?: string) {
 }
 
 // Stats WebSocket para updates em tempo real
-let wss: WebSocketServer | null = null;
+export let wss: WebSocketServer | null = null;
 const wsClients = new Set<WebSocket>();
 
-function broadcastWsUpdate(data: any) {
+export function broadcastWsUpdate(data: any) {
   const message = JSON.stringify(data);
-  wsClients.forEach(client => {
-    if (client.readyState === WebSocket.OPEN) {
-      client.send(message);
-    }
-  });
+  wsClients.forEach(client => { if (client.readyState === WebSocket.OPEN) client.send(message); });
 }
 
-const parser = new Parser({
-  customFields: {
-    item: [["content:encoded", "contentEncoded"]],
-  }
-});
+const parser = new Parser({ customFields: { item: [["content:encoded", "contentEncoded"]] } });
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
-
 app.set("trust proxy", 1);
 
-const allowedOrigins = [
-  "http://localhost:5173",
-  "http://localhost:3000",
-  "https://aifeastengine.com",
-  "https://www.aifeastengine.com",
-  "https://api.aifeastengine.com",
-  /\.aifeastengine\.com$/,
-  /\.onrender\.com$/
-];
+const allowedOrigins = ["http://localhost:5173", "http://localhost:3000", "https://aifeastengine.com", "https://www.aifeastengine.com", "https://api.aifeastengine.com", /\.aifeastengine\.com$/, /\.onrender\.com$/];
 
 app.use(cors({
   origin: (origin, callback) => {
     if (!origin) return callback(null, true);
-    if (allowedOrigins.some(ao => (typeof ao === 'string' ? ao === origin : ao.test(origin)))) {
-      return callback(null, true);
-    }
+    if (allowedOrigins.some(ao => (typeof ao === 'string' ? ao === origin : ao.test(origin)))) return callback(null, true);
     console.log(`[CORS] Blocked origin: ${origin}`);
     callback(new Error("Not allowed by CORS"));
   },
@@ -155,301 +108,66 @@ app.use(cors({
 
 app.use(globalIpLimit);
 
-// Sentry está habilitado apenas se SENTRY_DSN estiver configurado
-// A instrumentação automática do Express já funciona com Sentry.init()
-
-// Stripe Webhook - DEVE vir ANTES do express.json() para preservar raw body
+// Stripe Webhook — DEVE vir ANTES do express.json() para preservar raw body
 app.post("/api/stripe-webhook", express.raw({ type: "application/json" }), async (req, res) => {
   const sig = req.headers["stripe-signature"];
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
-
-  if (!webhookSecret) {
-    console.log("⚠️ Stripe Webhook Secret is not set. Webhook skipped.");
-    return res.status(200).json({ received: true });
-  }
+  if (!webhookSecret) { console.log("⚠️ Stripe Webhook Secret is not set."); return res.status(200).json({ received: true }); }
 
   let event;
-  try {
-    event = stripe.webhooks.constructEvent(req.body, sig as string, webhookSecret);
-  } catch (err: any) {
-    console.error(`❌ Webhook Error: ${err.message}`);
-    return res.status(400).send(`Webhook Error: ${err.message}`);
-  }
+  try { event = stripe.webhooks.constructEvent(req.body, sig as string, webhookSecret); }
+  catch (err: any) { console.error(`❌ Webhook Error: ${err.message}`); return res.status(400).send(`Webhook Error: ${err.message}`); }
 
   switch (event.type) {
-    case "checkout.session.completed":
+    case "checkout.session.completed": {
       const session = event.data.object as any;
-      const userId = session.client_reference_id;
-      const customerId = session.customer;
-      console.log(`💰 Payment success: User ${userId}, Customer ${customerId}`);
-      await supabase.from("users").update({
-        plan: "pro",
-        stripe_customer_id: customerId,
-        rate_limit: 100
-      }).eq("id", userId);
+      console.log(`💰 Payment success: User ${session.client_reference_id}`);
+      await supabase.from("users").update({ plan: "pro", stripe_customer_id: session.customer, rate_limit: 100 }).eq("id", session.client_reference_id);
       break;
-    case "customer.subscription.deleted":
+    }
+    case "customer.subscription.deleted": {
       const subscription = event.data.object as any;
-      const { data: userToDowngrade } = await supabase
-        .from("users")
-        .select("id")
-        .eq("stripe_customer_id", subscription.customer)
-        .single();
-      if (userToDowngrade) {
-        await supabase.from("users").update({
-          plan: "free",
-          rate_limit: 10
-        }).eq("id", userToDowngrade.id);
-        console.log(`📉 User ${userToDowngrade.id} downgraded to Free.`);
-      }
+      const { data: u } = await supabase.from("users").select("id").eq("stripe_customer_id", subscription.customer).single();
+      if (u) { await supabase.from("users").update({ plan: "free", rate_limit: 10 }).eq("id", u.id); console.log(`📉 User ${u.id} downgraded.`); }
       break;
-    default:
-      console.log(`Unhandled event type ${event.type}`);
+    }
   }
   res.json({ received: true });
 });
 
-// JSON parsing para todas as outras rotas
+// JSON parsing
 app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: true, limit: "1mb" }));
 
-// Hard limit: rejeitar payloads maiores que 10MB
+// Hard limit: rejeitar payloads > 10MB
 app.use((req, res, next) => {
-  const contentLength = parseInt(req.headers["content-length"] || "0");
-  if (contentLength > 10 * 1024 * 1024) {
-    return res.status(413).json({ error: "Payload too large — max 10MB" });
-  }
+  const cl = parseInt(req.headers["content-length"] || "0");
+  if (cl > 10 * 1024 * 1024) return res.status(413).json({ error: "Payload too large — max 10MB" });
   next();
 });
 
-async function checkAdmin(req: Request, res: Response, next: NextFunction) {
-  const authHeader = req.header("Authorization");
+// ==========================================
+// REGISTER MODULAR ROUTERS
+// ==========================================
+app.use("/api/admin", adminRouter);
+app.use("/api/skills", skillsRouter);
+app.use("/api", publicRouter); // /api/verified, /api/search, /api/feed, /api/stats
 
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return res.status(401).json({ error: "Unauthorized — Bearer token required" });
-  }
-
-  const token = authHeader.replace("Bearer ", "");
-
-  try {
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-    if (authError || !user) {
-      return res.status(401).json({ error: "Invalid or expired token" });
-    }
-
-    const { data: userData } = await supabase
-      .from("users").select("role").eq("id", user.id).single();
-
-    if (userData?.role !== "admin") {
-      return res.status(403).json({ error: "Admin access required" });
-    }
-
-    (req as any).user = { id: user.id };
-    next();
-  } catch (err) {
-    res.status(401).json({ error: "Authentication failed" });
-  }
-}
-
-async function runIngestion() {
-  console.log(">>> [RSS] Starting Ingestion at " + new Date().toISOString());
-  try {
-    const { data: feeds } = await supabase.from("feeds").select("*");
-    if (!feeds) return;
-
-    // Balancear categorias: verificar quantos posts cada categoria tem
-    const { data: postsData, error: postsError } = await supabase
-      .from("posts")
-      .select("category");
-
-    const categoryCounts: Record<string, number> = {};
-    if (postsError) {
-      console.error(`>>> [RSS] Error fetching posts for category count: ${postsError.message}`);
-    } else if (postsData) {
-      postsData.forEach((p: any) => {
-        const cat = (p.category || "General").toLowerCase();
-        categoryCounts[cat] = (categoryCounts[cat] || 0) + 1;
-      });
-    }
-
-    // Configurar limites por categoria
-    const MAX_POSTS_PER_CATEGORY = 200; // Teto por categoria
-    const MIN_POSTS_PER_CATEGORY = 30; // Mínimo ideal
-    const TARGET_PER_CYCLE = 5; // Target de novos posts por feed por ciclo
-
-    console.log(`>>> [RSS] Category counts:`, categoryCounts);
-
-    // Agrupar feeds por categoria para balancear
-    const feedsByCategory: Record<string, typeof feeds> = {};
-    feeds.forEach(f => {
-      const cat = f.category || "General";
-      if (!feedsByCategory[cat]) feedsByCategory[cat] = [];
-      feedsByCategory[cat].push(f);
-    });
-
-    // Processar categorias com menos posts primeiro
-    const sortedCategories = Object.keys(feedsByCategory).sort((a, b) => {
-      const countA = categoryCounts[a] || 0;
-      const countB = categoryCounts[b] || 0;
-      return countA - countB; // Categorias com menos posts vêm primeiro
-    });
-
-    console.log(`>>> [RSS] Processing order: ${sortedCategories.join(', ')}`);
-
-    let totalIngested = 0;
-
-    for (const category of sortedCategories) {
-      const currentCount = categoryCounts[category] || 0;
-      const categoryFeeds = feedsByCategory[category];
-
-      // Se categoria já atingiu o teto, pular
-      if (currentCount >= MAX_POSTS_PER_CATEGORY) {
-        console.log(`>>> [RSS] ${category}: ${currentCount} posts (MAX reached, skipping)`);
-        continue;
-      }
-
-      // Calcular quantos items pegar por feed
-      let itemsPerFeed = TARGET_PER_CYCLE;
-      if (currentCount < MIN_POSTS_PER_CATEGORY) {
-        itemsPerFeed = 15; // Categoria precisa de mais conteúdo
-      } else if (currentCount > MAX_POSTS_PER_CATEGORY * 0.75) {
-        itemsPerFeed = 2; // Categoria quase cheia, pegar menos
-      }
-
-      console.log(`>>> [RSS] ${category}: ${currentCount} posts, ${itemsPerFeed} items/feed`);
-
-      for (const feed of categoryFeeds) {
-        try {
-          const feedData = await parser.parseURL(feed.url);
-          let ingestedThisFeed = 0;
-
-          for (const item of feedData.items.slice(0, itemsPerFeed)) {
-            // Verificar se post já existe
-            const { data: exists } = await supabase
-              .from("posts")
-              .select("id")
-              .eq("link", item.link)
-              .single();
-
-            if (exists) continue;
-
-            const rawContent = (item as any).contentEncoded || item.content || item.contentSnippet || "";
-
-            const { error } = await supabase.from("posts").insert({
-              title: item.title,
-              link: item.link,
-              pub_date: item.pubDate ? new Date(item.pubDate).toISOString() : new Date().toISOString(),
-              content_raw: rawContent,
-              source_id: feed.id,
-              category: category, // Usa a categoria do feed
-              status: "pending"
-            });
-
-            if (error) {
-              console.error(`Error inserting post: ${item.title}`, error.message);
-            } else {
-              ingestedThisFeed++;
-              totalIngested++;
-            }
-          }
-
-          if (ingestedThisFeed > 0) {
-            console.log(`>>> [RSS] Ingested ${ingestedThisFeed} posts from ${feed.name} [${category}]`);
-          }
-        } catch (err: any) {
-          console.error(`Failed to parse feed ${feed.url}: ${err.message}`);
-        }
-      }
-    }
-
-    console.log(`>>> [RSS] Ingestion complete. Total new posts: ${totalIngested}`);
-  } catch (err: any) {
-    console.error("Ingestion Loop Error:", err.message);
-  }
-}
-
-setInterval(runIngestion, 30 * 60 * 1000);
-
-// Heartbeat para monitoramento (a cada 5 min)
-setInterval(async () => {
-  try {
-    const { count: pendingCount } = await supabase
-      .from("posts")
-      .select("*", { count: "exact", head: true })
-      .eq("status", "pending");
-
-    const { count: publishedCount } = await supabase
-      .from("posts")
-      .select("*", { count: "exact", head: true })
-      .eq("status", "published");
-
-    console.log(`>>> [Heartbeat] ${new Date().toISOString()} | Published: ${publishedCount} | Pending: ${pendingCount} | Queue processing: active`);
-  } catch (err: any) {
-    console.error(`>>> [Heartbeat] Error: ${err.message}`);
-  }
-}, 5 * 60 * 1000);
-
-console.log(">>> [AutoQueue] Starting interval...");
-setInterval(async () => {
-  console.log(">>> [AutoQueue] Verificando posts pendentes...");
-  try {
-    const { data: pending, error } = await supabase.from("posts").select("id").eq("status", "pending").limit(20);
-    if (error) {
-      console.error(">>> [AutoQueue] Erro ao buscar posts:", error.message);
-      return;
-    }
-    console.log(`>>> [AutoQueue] Posts pendentes encontrados: ${pending?.length || 0}`);
-    if (pending && pending.length > 0) {
-      console.log(">>> [AutoQueue] Chamando queueService.addTasks...");
-      queueService.addTasks(pending.map(p => p.id));
-    }
-  } catch (err: any) {
-    console.error(">>> [AutoQueue] Erro:", err.message);
-  }
-}, 5 * 60 * 1000);
-
-console.log(">>> [RetryHandler] Starting interval...");
-setInterval(async () => {
-  console.log(">>> [RetryHandler] Verificando posts com erro...");
-  try {
-    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-    const { data: errorPosts, error } = await supabase
-      .from("posts")
-      .select("id, retry_count")
-      .eq("status", "error")
-      .lt("updated_at", oneHourAgo)
-      .lt("retry_count", 3)
-      .limit(10);
-    
-    if (error) {
-      console.error(">>> [RetryHandler] Erro ao buscar posts:", error.message);
-      return;
-    }
-    
-    console.log(`>>> [RetryHandler] Posts com erro para retry: ${errorPosts?.length || 0}`);
-    
-    if (errorPosts && errorPosts.length > 0) {
-      const idsToRetry = errorPosts.map(p => p.id);
-      await supabase.from("posts").update({ status: "pending" }).in("id", idsToRetry);
-      console.log(`>>> [RetryHandler] Posts resetados para pending: ${idsToRetry.length}`);
-    }
-  } catch (err: any) {
-    console.error(">>> [RetryHandler] Erro:", err.message);
-  }
-}, 30 * 60 * 1000);
-
+// ==========================================
+// HEALTH
+// ==========================================
 app.get("/api/health", (req, res) => res.json({ status: "alive" }));
 
+// ==========================================
+// CHAT
+// ==========================================
 const chatClients: Record<string, OpenAI> = {};
-
 function getChatClient(model: string): OpenAI {
   const useGroq = process.env.OPENAI_BASE_URL?.includes("groq");
   const key = useGroq ? process.env.OPENAI_API_KEY! : process.env.OPENAI_API_KEY || "local";
   const baseUrl = useGroq ? "https://api.groq.com/openai/v1" : process.env.OPENAI_BASE_URL || "https://api.groq.com/openai/v1";
   const cacheKey = `${model}-${baseUrl}`;
-  if (!chatClients[cacheKey]) {
-    chatClients[cacheKey] = new OpenAI({ apiKey: key, baseURL: baseUrl });
-  }
+  if (!chatClients[cacheKey]) chatClients[cacheKey] = new OpenAI({ apiKey: key, baseURL: baseUrl });
   return chatClients[cacheKey];
 }
 
@@ -459,522 +177,53 @@ app.post("/api/chat", apiKeyRateLimit, async (req, res) => {
 
   const { data: user } = await supabase.from("users").select("*").eq("api_key", apiKey).single();
   if (!user) return res.status(403).json({ error: "Invalid API Key" });
-
-  if (user.plan === "free" && user.usage_count >= 100) {
-    return res.status(429).json({ error: "Free limit reached (100/mo)" });
-  }
+  if (user.plan === "free" && user.usage_count >= 100) return res.status(429).json({ error: "Free limit reached (100/mo)" });
 
   const { model, messages, temperature = 0.7 } = req.body;
-  if (!model || !messages) {
-    return res.status(400).json({ error: "model and messages required" });
-  }
+  if (!model || !messages) return res.status(400).json({ error: "model and messages required" });
 
   try {
     const client = getChatClient(model);
-    const response = await client.chat.completions.create({
-      model: model.includes("/") ? model : model,
-      messages,
-      temperature
-    });
-
+    const response = await client.chat.completions.create({ model, messages, temperature });
     await supabase.from("users").update({ usage_count: user.usage_count + 1 }).eq("api_key", apiKey);
-
-    res.json({ 
-      model: response.model,
-      choices: response.choices,
-      usage: response.usage
-    });
-  } catch (err: any) {
-    console.error("[Chat] Error:", err.message);
-    res.status(500).json({ error: err.message });
-  }
+    res.json({ model: response.model, choices: response.choices, usage: response.usage });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
+// ==========================================
+// USER ROTATE KEY
+// ==========================================
 app.post("/api/user/rotate-key", async (req, res) => {
   const authHeader = req.header("Authorization");
   if (!authHeader) return res.status(401).json({ error: "Unauthorized" });
 
   const token = authHeader.replace("Bearer ", "");
   const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-  
-  if (authError || !user) {
-    console.error("Rotate key auth error:", authError?.message);
-    return res.status(401).json({ error: "Unauthorized" });
-  }
+  if (authError || !user) return res.status(401).json({ error: "Unauthorized" });
 
-  // Gera nova chave
   const newKey = "af_" + crypto.randomBytes(24).toString("hex");
-  
-  // Verifica se o usuário existe na tabela users
-  const { data: existingUser } = await supabase
-    .from("users")
-    .select("id")
-    .eq("id", user.id)
-    .single();
-  
+  const { data: existingUser } = await supabase.from("users").select("id").eq("id", user.id).single();
+
   let updateError;
-  
   if (existingUser) {
-    // Usuário existe, só atualiza a chave
-    const { error } = await supabase
-      .from("users")
-      .update({ api_key: newKey })
-      .eq("id", user.id);
+    const { error } = await supabase.from("users").update({ api_key: newKey }).eq("id", user.id);
     updateError = error;
   } else {
-    // Usuário não existe, cria registro
-    const { error } = await supabase
-      .from("users")
-      .insert({
-        id: user.id,
-        email: user.email,
-        api_key: newKey,
-        plan: "free",
-        usage_count: 0
-      });
+    const { error } = await supabase.from("users").insert({ id: user.id, email: user.email, api_key: newKey, plan: "free", usage_count: 0 });
     updateError = error;
   }
 
-  if (updateError) {
-    console.error("Rotate key DB error:", updateError.message);
-    return res.status(500).json({ error: "Failed to generate API key: " + updateError.message });
-  }
-  
-  console.log(`API key generated/rotated for user ${user.email}`);
+  if (updateError) return res.status(500).json({ error: "Failed to generate API key: " + updateError.message });
+  console.log(`API key generated for user ${user.email}`);
   res.json({ api_key: newKey });
 });
 
-app.get("/api/admin/posts", checkAdmin, async (req, res) => {
-  const { data, error } = await supabase.from("posts").select("*").order("created_at", { ascending: false }).limit(100);
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
-});
-
-app.post("/api/admin/process-batch", checkAdmin, async (req, res) => {
-  const { data: pending } = await supabase.from("posts").select("id").eq("status", "pending").limit(50);
-  if (!pending?.length) return res.json({ message: "No pending posts" });
-
-  queueService.addTasks(pending.map(p => p.id));
-  logAuditAction((req as any).user.id, "PROCESS_BATCH_MANUAL", req, { count: pending.length });
-  cacheInvalidate("feed"); // Invalida cache de feed
-  broadcastWsUpdate({ type: "queue_update", pending_count: pending.length });
-  res.json({ message: `Queueing ${pending.length} posts` });
-});
-
-app.post("/api/admin/feeds", checkAdmin, async (req, res) => {
-  const { name, url, category } = req.body;
-  const { data, error } = await supabase.from("feeds").insert({ name, url, category }).select().single();
-  if (error) return res.status(500).json({ error: error.message });
-  logAuditAction((req as any).user.id, "ADD_FEED", req, { name, url });
-  res.json(data);
-});
-
-// GET /api/admin/feeds/summary - Ver feeds por categoria (diagnóstico)
-app.get("/api/admin/feeds/summary", checkAdmin, async (req, res) => {
-  try {
-    const { data: feeds } = await supabase
-      .from("feeds")
-      .select("id, name, url, category")
-      .order("category");
-
-    const { data: posts } = await supabase
-      .from("posts")
-      .select("category, status")
-      .eq("status", "published");
-
-    // Contar feeds por categoria
-    const feedByCategory: Record<string, number> = {};
-    feeds?.forEach(f => {
-      const cat = f.category || "Uncategorized";
-      feedByCategory[cat] = (feedByCategory[cat] || 0) + 1;
-    });
-
-    // Contar posts por categoria
-    const postByCategory: Record<string, number> = {};
-    posts?.forEach(p => {
-      const cat = p.category || "Uncategorized";
-      postByCategory[cat] = (postByCategory[cat] || 0) + 1;
-    });
-
-    res.json({
-      total_feeds: feeds?.length || 0,
-      total_published_posts: posts?.length || 0,
-      feeds_by_category: feedByCategory,
-      posts_by_category: postByCategory,
-      feeds: feeds || []
-    });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// PATCH /api/admin/feeds/:id - Atualizar categoria de um feed
-app.patch("/api/admin/feeds/:id", checkAdmin, async (req, res) => {
-  const { category } = req.body;
-  const validCategories = ["Tech", "Finance", "Science", "Health", "General"];
-  if (!validCategories.includes(category)) {
-    return res.status(400).json({ error: "Categoria inválida", valid: validCategories });
-  }
-
-  const { data, error } = await supabase
-    .from("feeds")
-    .update({ category })
-    .eq("id", req.params.id)
-    .select()
-    .single();
-
-  if (error) return res.status(500).json({ error: error.message });
-  logAuditAction((req as any).user.id, "UPDATE_FEED_CATEGORY", req, { feed_id: req.params.id, category });
-  res.json(data);
-});
-
 // ==========================================
-// BLOCO 2: ADMIN SKILLS GENERATOR
+// STRIPE CHECKOUT
 // ==========================================
-
-// POST /api/admin/skills/generate - Gerar skill com IA
-app.post("/api/admin/skills/generate", checkAdmin, async (req, res) => {
-  try {
-    const { prompt } = req.body;
-
-    if (!prompt || prompt.trim().length < 10) {
-      return res.status(400).json({ error: "Prompt deve ter pelo menos 10 caracteres" });
-    }
-
-    console.log(`[SkillGen] Gerando skill com prompt: ${prompt.substring(0, 100)}...`);
-
-    const userPrompt = `Create a NEW skill for: "${prompt}"
-
-Current timestamp: ${Date.now()}
-
-Return ONLY this JSON object with ALL fields (no markdown, no extra text):
-{"id":"snake_case","name":"Title","slug":"kebab","desc":"short","long_desc":"medium","category":"analysis","tags":["a","b","c"],"risk":"low","install":"npx aifeast x","run":"npx aifeast run x"}`;
-
-    const AI_BASE_URL = process.env.OPENAI_BASE_URL || "https://api.groq.com/openai/v1";
-    const AI_API_KEY = process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY || "";
-    
-    // Chamar IA para gerar skill
-    const groqResponse = await fetch(`${AI_BASE_URL}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${AI_API_KEY}`
-      },
-      body: JSON.stringify({
-        model: process.env.LOCAL_MODEL || "llama-3.1-8b-instant",
-        messages: [
-          { role: "system", content: "You are a JSON API. Return ONLY valid JSON." },
-          { role: "user", content: userPrompt }
-        ],
-        response_format: { type: "json_object" },
-        temperature: 0.3,
-        max_tokens: 1024
-      })
-    });
-
-    if (!groqResponse.ok) {
-      const errorText = await groqResponse.text();
-      console.error(`[SkillGen] Groq error: ${groqResponse.status} - ${errorText}`);
-      return res.status(500).json({ error: "Erro ao gerar skill com IA", details: errorText });
-    }
-
-    const groqData = await groqResponse.json();
-    let responseText = groqData.choices[0]?.message?.content || "";
-
-    // Limpar response de markup
-    responseText = responseText
-      .replace(/```json\s*/g, '')
-      .replace(/```\s*/g, '')
-      .replace(/^[\s\S]*?(\{)/, '$1')
-      .replace(/(\})[\s\S]*$/, '$1')
-      .trim();
-
-    let skillJson;
-    try {
-      skillJson = JSON.parse(responseText);
-    } catch (parseError: any) {
-      console.error(`[SkillGen] JSON parse error: ${parseError.message}`);
-      // Fallback: auto-close brackets
-      let fixed = responseText.replace(/,\s*([}\]])/g, '$1');
-      const openB = (fixed.match(/{/g) || []).length;
-      const closeB = (fixed.match(/}/g) || []).length;
-      for (let i = 0; i < openB - closeB; i++) fixed += '}';
-      try {
-        skillJson = JSON.parse(fixed);
-      } catch (e2) {
-        return res.status(500).json({ error: "IA gerou JSON inválido", raw: responseText.substring(0, 500) });
-      }
-    }
-
-    // Completar campos faltantes com defaults
-    if (!skillJson.output_schema) skillJson.output_schema = { type: "object", properties: { result: { type: "string" } } };
-    if (!skillJson.input_schema) skillJson.input_schema = { type: "object", properties: { input: { type: "string" } } };
-    if (!skillJson.code) skillJson.code = `// TODO: Implement ${skillJson.id || 'skill'}`;
-
-    // Mapear nomes do prompt para validação
-    const desc = skillJson.desc || skillJson.description;
-    const longDesc = skillJson.long_desc || skillJson.long_description;
-    const risk = skillJson.risk || skillJson.risk_level;
-    const install = skillJson.install || skillJson.install_command;
-    const run = skillJson.run || skillJson.run_command;
-
-    // Validar APENAS campos essenciais
-    if (!skillJson.id || !skillJson.name || !skillJson.slug) {
-      return res.status(422).json({
-        error: "Skill gerada está incompleta (faltam id, name ou slug)",
-        received_fields: Object.keys(skillJson)
-      });
-    }
-
-    // Validar categoria
-    const validCategories = ['development', 'content', 'automation', 'analysis', 'security'];
-    const category = validCategories.includes(skillJson.category) ? skillJson.category : 'analysis';
-
-    // Validar risk_level
-    const validRisks = ['low', 'medium', 'high'];
-    const riskLevel = validRisks.includes(risk) ? risk : 'low';
-
-    // Montar skill completa
-    const skill = {
-      id: skillJson.id,
-      name: skillJson.name,
-      slug: skillJson.slug,
-      description: desc || 'No description',
-      long_description: longDesc || desc || 'No detailed description',
-      category: category,
-      tags: Array.isArray(skillJson.tags) ? skillJson.tags.slice(0, 3) : ['skill'],
-      input_schema: skillJson.input_schema,
-      output_schema: skillJson.output_schema,
-      code: skillJson.code,
-      install_command: `npx aifeast ${skillJson.slug}`,
-      run_command: `npx aifeast run ${skillJson.slug}`,
-      risk_level: riskLevel,
-      verified: false,
-      is_active: true
-    };
-
-    // Salvar no banco
-    const { data: savedSkill, error: dbError } = await supabase
-      .from("skills")
-      .insert(skill)
-      .select()
-      .single();
-
-    if (dbError) {
-      if (dbError.code === '23505') { // unique violation
-        return res.status(409).json({ error: "Skill com este id ou slug já existe", details: dbError.message });
-      }
-      return res.status(500).json({ error: "Erro ao salvar skill no banco", details: dbError.message });
-    }
-
-    // Invalidar cache
-    cacheInvalidate("skills");
-
-    console.log(`[SkillGen] Skill criada com sucesso: ${savedSkill.name} (${savedSkill.slug})`);
-
-    res.status(201).json({
-      message: "Skill gerada e salva com sucesso!",
-      skill: savedSkill
-    });
-  } catch (err: any) {
-    console.error("[SkillGen] Erro inesperado:", err.message);
-    res.status(500).json({ error: "Erro interno ao gerar skill" });
-  }
-});
-
-// ==========================================
-// SKILL EVALUATOR + SEGURANÇA (Bloco 4)
-// ==========================================
-
-// Blacklist de comandos perigosos
-const DANGEROUS_PATTERNS = [
-  /rm\s+-rf/i,
-  /DROP\s+TABLE/i,
-  /process\.exit/i,
-  /eval\s*\(/i,
-  /execSync/i,
-  /exec\s*\(/i,
-  /child_process/i,
-  /fs\.writeFile/i,
-  /fs\.unlink/i,
-  /require\s*\(\s*['"]child_process['"]\s*\)/i,
-  /spawn/i,
-  /fork/i,
-  /__proto__/i,
-  /constructor\.prototype/i
-];
-
-function scanForDanger(code: string): string[] {
-  return DANGEROUS_PATTERNS
-    .filter(pattern => pattern.test(code))
-    .map(pattern => pattern.source);
-}
-
-// POST /api/skills/:slug/evaluate - Avaliar segurança de uma skill
-app.post("/api/skills/:slug/evaluate", async (req, res) => {
-  try {
-    const { slug } = req.params;
-
-    // Buscar skill no banco
-    const { data: skill, error } = await supabase
-      .from("skills")
-      .select("*")
-      .eq("slug", slug)
-      .eq("is_active", true)
-      .single();
-
-    if (error || !skill) {
-      return res.status(404).json({ error: "Skill not found or inactive" });
-    }
-
-    // Scan por código perigoso
-    const warnings = scanForDanger(skill.code || "");
-
-    // Avaliar via IA
-    const AI_BASE_URL = process.env.OPENAI_BASE_URL || "https://api.groq.com/openai/v1";
-    const AI_API_KEY = process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY || "";
-    const groqResponse = await fetch(`${AI_BASE_URL}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${AI_API_KEY}`
-      },
-      body: JSON.stringify({
-        model: process.env.LOCAL_MODEL || "llama-3.1-8b-instant",
-        messages: [
-          {
-            role: "system",
-            content: "You are a security evaluator. Analyze the skill and return ONLY valid JSON with: risk (low|medium|high), score (0-1), explanation (string), warnings (array of strings)."
-          },
-          {
-            role: "user",
-            content: `Evaluate this AI skill for security:
-Name: ${skill.name}
-Category: ${skill.category}
-Description: ${skill.description}
-Tags: ${(skill.tags || []).join(", ")}
-Code: ${skill.code || "No code provided"}
-
-Return ONLY JSON: {"risk":"low","score":0.95,"explanation":"Safe","warnings":[]}`
-          }
-        ],
-        response_format: { type: "json_object" },
-        temperature: 0.1,
-        max_tokens: 512
-      })
-    });
-
-    let evaluation = { risk: "low", score: 0.95, explanation: "Default safe evaluation", warnings: [] };
-
-    if (groqResponse.ok) {
-      try {
-        const groqData = await groqResponse.json();
-        let responseText = groqData.choices[0]?.message?.content || "";
-        responseText = responseText.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
-        const parsed = JSON.parse(responseText);
-        if (parsed.risk && parsed.score) {
-          evaluation = parsed;
-        }
-      } catch {
-        console.log("[Evaluator] Groq parse failed, using defaults");
-      }
-    }
-
-    // Adicionar warnings do scan local
-    if (warnings.length > 0) {
-      evaluation.warnings.push(...warnings);
-      evaluation.risk = "high";
-      evaluation.score = Math.max(0, evaluation.score - 0.5);
-    }
-
-    // Skill evaluator protegida
-    if (skill.id === "skill_evaluator") {
-      evaluation.warnings.push("This is a protected system skill");
-    }
-
-    res.json({
-      slug: skill.slug,
-      name: skill.name,
-      risk: evaluation.risk,
-      score: evaluation.score,
-      explanation: evaluation.explanation,
-      warnings: evaluation.warnings,
-      blocked: evaluation.risk === "high"
-    });
-  } catch (err: any) {
-    console.error("[Evaluator] Error:", err.message);
-    res.status(500).json({ error: "Failed to evaluate skill" });
-  }
-});
-
-// POST /api/admin/skills/:id/toggle - Ativar/desativar skill (com proteção do evaluator)
-app.post("/api/admin/skills/:id/toggle", checkAdmin, async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    // Proteger skill_evaluator
-    if (id === "skill_evaluator") {
-      return res.status(403).json({ error: "Skill Evaluator cannot be deactivated" });
-    }
-
-    const { data: skill, error: fetchError } = await supabase
-      .from("skills")
-      .select("is_active")
-      .eq("id", id)
-      .single();
-
-    if (fetchError || !skill) {
-      return res.status(404).json({ error: "Skill não encontrada" });
-    }
-
-    const { data: updatedSkill, error: updateError } = await supabase
-      .from("skills")
-      .update({ is_active: !skill.is_active })
-      .eq("id", id)
-      .select()
-      .single();
-
-    if (updateError) {
-      return res.status(500).json({ error: "Erro ao atualizar skill" });
-    }
-
-    cacheInvalidate("skills");
-
-    res.json({
-      message: `Skill ${updatedSkill.is_active ? 'ativada' : 'desativada'}`,
-      skill: updatedSkill
-    });
-  } catch (err: any) {
-    res.status(500).json({ error: "Erro interno" });
-  }
-});
-
-// DELETE /api/admin/skills/:id - Deletar skill (com proteção do evaluator)
-app.delete("/api/admin/skills/:id", checkAdmin, async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    // Proteger skill_evaluator
-    if (id === "skill_evaluator") {
-      return res.status(403).json({ error: "Skill Evaluator cannot be deleted" });
-    }
-
-    const { error } = await supabase.from("skills").delete().eq("id", id);
-    if (error) {
-      return res.status(500).json({ error: "Erro ao deletar skill" });
-    }
-
-    cacheInvalidate("skills");
-    res.json({ message: "Skill deletada com sucesso" });
-  } catch (err: any) {
-    res.status(500).json({ error: "Erro interno" });
-  }
-});
-
 app.post("/api/create-checkout-session", async (req, res) => {
   const { userId, email } = req.body;
   if (!userId || !email) return res.status(400).json({ error: "Missing data" });
-
   try {
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ["card"],
@@ -987,602 +236,127 @@ app.post("/api/create-checkout-session", async (req, res) => {
       metadata: { userId }
     });
     res.json({ url: session.url });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
 // ==========================================
-// NEW: Sitemap.xml (Dinâmico)
+// SITEMAP
 // ==========================================
 app.get("/sitemap.xml", async (req, res) => {
   try {
     const cached = cacheGet("sitemap");
-    if (cached) {
-      res.setHeader("Content-Type", "application/xml");
-      res.setHeader("Cache-Control", "public, max-age=300");
-      return res.send(cached);
-    }
+    if (cached) { res.setHeader("Content-Type", "application/xml"); res.setHeader("Cache-Control", "public, max-age=300"); return res.send(cached); }
 
-    const { data: posts } = await supabase
-      .from("posts")
-      .select("link, created_at, title")
-      .eq("status", "published")
-      .order("created_at", { ascending: false })
-      .limit(5000);
-
+    const { data: posts } = await supabase.from("posts").select("link, created_at, title").eq("status", "published").order("created_at", { ascending: false }).limit(5000);
     const baseUrl = process.env.APP_URL || "https://www.aifeastengine.com";
-    let xml = `<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url>
-    <loc>${baseUrl}/</loc>
-    <changefreq>daily</changefreq>
-    <priority>1.0</priority>
-  </url>
-  <url>
-    <loc>${baseUrl}/feed</loc>
-    <changefreq>hourly</changefreq>
-    <priority>0.9</priority>
-  </url>
-  <url>
-    <loc>${baseUrl}/docs</loc>
-    <changefreq>weekly</changefreq>
-    <priority>0.7</priority>
-  </url>
-  <url>
-    <loc>${baseUrl}/dashboard</loc>
-    <changefreq>weekly</changefreq>
-    <priority>0.6</priority>
-  </url>`;
+    let xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>${baseUrl}/</loc><changefreq>daily</changefreq><priority>1.0</priority></url>
+  <url><loc>${baseUrl}/feed</loc><changefreq>hourly</changefreq><priority>0.9</priority></url>
+  <url><loc>${baseUrl}/docs</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>
+  <url><loc>${baseUrl}/dashboard</loc><changefreq>weekly</changefreq><priority>0.6</priority></url>`;
 
-    if (posts) {
-      posts.forEach(post => {
-        const safeUrl = post.link?.replace(/[<>&"']/g, "");
-        if (safeUrl && safeUrl.startsWith("http")) {
-          xml += `
-  <url>
-    <loc>${safeUrl}</loc>
-    <lastmod>${new Date(post.created_at).toISOString().split('T')[0]}</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.6</priority>
-  </url>`;
-        }
-      });
-    }
+    if (posts) posts.forEach(post => {
+      const safeUrl = post.link?.replace(/[<>&"']/g, "");
+      if (safeUrl && safeUrl.startsWith("http")) xml += `\n  <url><loc>${safeUrl}</loc><lastmod>${new Date(post.created_at).toISOString().split('T')[0]}</lastmod><changefreq>weekly</changefreq><priority>0.6</priority></url>`;
+    });
+    xml += "\n</urlset>";
 
-    xml += `\n</urlset>`;
-
-    cacheSet("sitemap", xml, 60 * 60 * 1000); // Cache 1h
+    cacheSet("sitemap", xml, 60*60*1000);
     res.setHeader("Content-Type", "application/xml");
     res.setHeader("Cache-Control", "public, max-age=3600");
     res.send(xml);
-  } catch (err: any) {
-    console.error("Sitemap error:", err.message);
-    res.status(500).json({ error: "Failed to generate sitemap" });
-  }
+  } catch (err: any) { res.status(500).json({ error: "Failed to generate sitemap" }); }
 });
 
 // ==========================================
-// NEW: Verified Score Endpoint
+// RSS INGESTION LOOP
 // ==========================================
-app.get("/api/verified", apiKeyRateLimit, async (req, res) => {
-  const apiKey = req.header("X-API-Key");
-  if (!apiKey) return res.status(401).json({ error: "API Key required — use header X-API-Key" });
+async function runIngestion() {
+  console.log(">>> [RSS] Starting Ingestion at " + new Date().toISOString());
+  try {
+    const { data: feeds } = await supabase.from("feeds").select("*");
+    if (!feeds) return;
 
-  const { data: user } = await supabase.from("users").select("*").eq("api_key", apiKey).single();
-  if (!user) return res.status(403).json({ error: "Invalid API Key" });
+    const { data: postsData } = await supabase.from("posts").select("category");
+    const categoryCounts: Record<string, number> = {};
+    if (postsData) postsData.forEach((p: any) => { const cat = (p.category || "General").toLowerCase(); categoryCounts[cat] = (categoryCounts[cat] || 0) + 1; });
 
-  if (user.plan === "free" && user.usage_count >= 100) {
-    return res.status(429).json({ error: "Free limit reached (100/mo)" });
-  }
+    const MAX_POSTS_PER_CATEGORY = 200;
+    const MIN_POSTS_PER_CATEGORY = 30;
+    const feedsByCategory: Record<string, typeof feeds> = {};
+    feeds.forEach(f => { const cat = f.category || "General"; if (!feedsByCategory[cat]) feedsByCategory[cat] = []; feedsByCategory[cat].push(f); });
 
-  await supabase.from("users").update({ usage_count: user.usage_count + 1 }).eq("id", user.id);
-  await supabase.from("usage_logs").insert({
-    user_id: user.id,
-    endpoint: "/api/verified",
-    cost: user.plan === "pro" ? 0.001 : 0
-  });
+    const sortedCategories = Object.keys(feedsByCategory).sort((a, b) => (categoryCounts[a] || 0) - (categoryCounts[b] || 0));
+    let totalIngested = 0;
 
-  // Retorna apenas posts com score de verificação alto
-  const { data: verifiedPosts } = await supabase
-    .from("posts")
-    .select("*")
-    .eq("status", "published")
-    .not("summary", "is", null)
-    .order("created_at", { ascending: false })
-    .limit(20);
+    for (const category of sortedCategories) {
+      const currentCount = categoryCounts[category] || 0;
+      if (currentCount >= MAX_POSTS_PER_CATEGORY) continue;
 
-  // Adiciona verified_score baseado na qualidade do conteúdo
-  const scoredPosts = (verifiedPosts || []).map(post => ({
-    ...post,
-    verified_score: calculateVerifiedScore(post),
-    is_verified: post.summary && post.translations && Object.keys(post.translations || {}).length >= 8
-  }));
+      let itemsPerFeed = 5;
+      if (currentCount < MIN_POSTS_PER_CATEGORY) itemsPerFeed = 15;
+      else if (currentCount > MAX_POSTS_PER_CATEGORY * 0.75) itemsPerFeed = 2;
 
-  const filteredPosts = scoredPosts.filter(p => p.is_verified);
-
-  res.json({
-    posts: filteredPosts,
-    total_verified: filteredPosts.length,
-    verified_percentage: verifiedPosts?.length ? Math.round((filteredPosts.length / verifiedPosts.length) * 100) : 0
-  });
-});
-
-function calculateVerifiedScore(post: any): number {
-  let score = 0;
-
-  // Tem título? (+20)
-  if (post.title && post.title.length > 10) score += 20;
-
-  // Tem summary? (+30)
-  if (post.summary && post.summary.length > 50) score += 30;
-
-  // Tem traduções completas? (+30)
-  if (post.translations) {
-    const translationCount = Object.keys(post.translations).length;
-    score += Math.min(30, (translationCount / 10) * 30);
-  }
-
-  // Tem conteúdo raw? (+20)
-  if (post.content_raw && post.content_raw.length > 200) score += 20;
-
-  return Math.round(score);
+      for (const feed of (feedsByCategory[category] || [])) {
+        try {
+          const feedData = await parser.parseURL(feed.url);
+          for (const item of feedData.items.slice(0, itemsPerFeed)) {
+            const { data: exists } = await supabase.from("posts").select("id").eq("link", item.link).single();
+            if (exists) continue;
+            const rawContent = (item as any).contentEncoded || item.content || item.contentSnippet || "";
+            const { error } = await supabase.from("posts").insert({ title: item.title, link: item.link, pub_date: item.pubDate ? new Date(item.pubDate).toISOString() : new Date().toISOString(), content_raw: rawContent, source_id: feed.id, category, status: "pending" });
+            if (!error) totalIngested++;
+          }
+        } catch (err: any) { console.error(`Failed to parse feed ${feed.url}: ${err.message}`); }
+      }
+    }
+    console.log(`>>> [RSS] Ingestion complete. Total new posts: ${totalIngested}`);
+  } catch (err: any) { console.error("Ingestion Loop Error:", err.message); }
 }
 
-// ==========================================
-// NEW: Search Endpoint
-// ==========================================
-app.get("/api/search", apiKeyRateLimit, async (req, res) => {
-  const { q, lang, category, limit = 20, offset = 0 } = req.query;
-  const apiKey = req.header("X-API-Key");
+setInterval(runIngestion, 30*60*1000);
 
-  if (apiKey) {
-    const { data: user } = await supabase.from("users").select("*").eq("api_key", apiKey).single();
-    if (!user) return res.status(403).json({ error: "Invalid API Key" });
-    if (user.plan === "free" && user.usage_count >= 100) {
-      return res.status(429).json({ error: "Free limit reached (100/mo)" });
-    }
-    await supabase.from("users").update({ usage_count: user.usage_count + 1 }).eq("id", user.id);
-    await supabase.from("usage_logs").insert({
-      user_id: user.id,
-      endpoint: "/api/search",
-      cost: user.plan === "pro" ? 0.001 : 0
-    });
-  }
-
-  const cacheKey = `search:${q}:${lang}:${category}:${limit}`;
-  const cached = cacheGet(cacheKey);
-  if (cached) return res.json(cached);
-
-  let query = supabase
-    .from("posts")
-    .select("*", { count: "exact" })
-    .eq("status", "published");
-
-  // Busca por título ou summary
-  if (q) {
-    query = query.or(`title.ilike.%${q}%,summary.ilike.%${q}%`);
-  }
-
-  // Filtro por idioma (nas traduções)
-  if (lang) {
-    // Supabase não suporta filtro JSONB nativo simples, então filtramos depois
-  }
-
-  // Filtro por categoria (case-insensitive)
-  if (category) {
-    const catLower = (category as string).toLowerCase();
-    // Supabase ilike para case-insensitive
-    query = query.ilike("category", catLower);
-  }
-
-  // Paginação
-  const limitNum = Math.min(Number(limit), 50);
-  const offsetNum = Number(offset);
-  query = query.range(offsetNum, offsetNum + limitNum - 1);
-
-  const { data: posts, error, count } = await query.order("created_at", { ascending: false });
-
-  if (error) {
-    return res.status(500).json({ error: error.message });
-  }
-
-  // Filtra por idioma se necessário
-  let filteredPosts = posts || [];
-  if (lang) {
-    filteredPosts = filteredPosts.filter(post => {
-      if (lang === "pt") return !!post.summary;
-      return post.translations?.[lang as string];
-    }).map(post => {
-      if (lang === "pt") return post;
-      return {
-        ...post,
-        title: post.translations?.[lang as string] || post.title,
-        summary: post.translations?.[lang as string] || post.summary,
-        language: lang
-      };
-    });
-  }
-
-  const result = {
-    query: q,
-    total: count || 0,
-    limit: limitNum,
-    offset: offsetNum,
-    posts: filteredPosts,
-    has_more: (offsetNum + limitNum) < (count || 0)
-  };
-
-  cacheSet(cacheKey, result, CACHE_TTL.search);
-  res.json(result);
-});
-
-// ==========================================
-// UPDATED: Feed endpoint com Cache + Pagination + Filtros
-// ==========================================
-app.get("/api/feed", apiKeyRateLimit, async (req, res) => {
-  const apiKey = req.header("X-API-Key");
-  if (!apiKey) return res.status(401).json({ error: "API Key required — use header X-API-Key" });
-
-  const { data: user } = await supabase.from("users").select("*").eq("api_key", apiKey).single();
-  if (!user) return res.status(403).json({ error: "Invalid API Key" });
-
-  if (user.plan === "free" && user.usage_count >= 100) {
-    return res.status(429).json({ error: "Free limit reached (100/mo)" });
-  }
-
-  const { lang, category, limit = 20, offset = 0 } = req.query;
-
-  // Incrementar usage_count UMA única vez (após validação)
-  await supabase.from("users").update({ usage_count: user.usage_count + 1 }).eq("id", user.id);
-  await supabase.from("usage_logs").insert({
-    user_id: user.id,
-    endpoint: "/api/feed",
-    cost: user.plan === "pro" ? 0.001 : 0
-  });
-
-  // Cache key baseado nos parâmetros
-  const cacheKey = `feed:${apiKey}:${lang}:${category}:${limit}:${offset}`;
-  const cached = cacheGet(cacheKey);
-  if (cached) {
-    return res.json(cached);
-  }
-
-  let query = supabase
-    .from("posts")
-    .select("*", { count: "exact" })
-    .eq("status", "published");
-
-  if (category) {
-    const catLower = (category as string).toLowerCase();
-    query = query.ilike("category", catLower);
-  }
-
-  const limitNum = Math.min(Number(limit), 50);
-  const offsetNum = Number(offset);
-  query = query.range(offsetNum, offsetNum + limitNum - 1);
-
-  const { data: posts, count } = await query.order("created_at", { ascending: false });
-
-  let filteredPosts = posts || [];
-
-  // Filtra/seleciona idioma
-  if (lang && lang !== "pt") {
-    filteredPosts = filteredPosts
-      .filter(post => post.translations?.[lang as string])
-      .map(post => ({
-        ...post,
-        title: post.translations?.[lang as string] || post.title,
-        summary: post.translations?.[lang as string] || post.summary,
-        language: lang
-      }));
-  } else if (lang === "pt") {
-    filteredPosts = filteredPosts.filter(post => post.summary);
-  }
-
-  const result = {
-    total: count || 0,
-    limit: limitNum,
-    offset: offsetNum,
-    posts: filteredPosts,
-    has_more: (offsetNum + limitNum) < (count || 0),
-    user_plan: user.plan,
-    remaining_requests: user.plan === "free" ? Math.max(0, 100 - user.usage_count) : "unlimited"
-  };
-
-  cacheSet(cacheKey, result, CACHE_TTL.feed);
-  res.json(result);
-});
-
-// ==========================================
-// NEW: Stats endpoint com Cache
-// ==========================================
-app.get("/api/stats", async (req, res) => {
-  const cached = cacheGet("stats");
-  if (cached) return res.json(cached);
-
-  const [{ count: postsCount }, { count: feedsCount }] = await Promise.all([
-    supabase.from("posts").select("*", { count: "exact", head: true }).eq("status", "published"),
-    supabase.from("feeds").select("*", { count: "exact", head: true })
-  ]);
-
-  const stats = {
-    postsCount: postsCount || 0,
-    feedsCount: feedsCount || 0,
-    languages: 11,
-    cache_enabled: true
-  };
-
-  cacheSet("stats", stats, CACHE_TTL.stats);
-  res.json(stats);
-});
-
-// ==========================================
-// SKILLS SYSTEM - Bloco 1: API Pública
-// ==========================================
-
-// Helper: Verificar limite do plano
-function checkPlanLimit(user: any): { allowed: boolean; limit: number | string; remaining: number | string } {
-  const limits: Record<string, number> = {
-    free: 100,
-    pro: 10000,
-    enterprise: -1 // ilimitado
-  };
-
-  const limit = limits[user.plan] || limits.free;
-  const usageCount = user.usage_count || 0;
-
-  if (limit === -1) {
-    return { allowed: true, limit: "unlimited", remaining: "unlimited" };
-  }
-
-  const remaining = Math.max(0, limit - usageCount);
-  return {
-    allowed: usageCount < limit,
-    limit,
-    remaining
-  };
-}
-
-// GET /api/skills - Listar skills ativas (público)
-app.get("/api/skills", async (req, res) => {
+// Heartbeat
+setInterval(async () => {
   try {
-    const cached = cacheGet("skills:list");
-    if (cached) return res.json(cached);
+    const [{ count: pendingCount }, { count: publishedCount }] = await Promise.all([
+      supabase.from("posts").select("*", { count: "exact", head: true }).eq("status", "pending"),
+      supabase.from("posts").select("*", { count: "exact", head: true }).eq("status", "published")
+    ]);
+    console.log(`>>> [Heartbeat] ${new Date().toISOString()} | Published: ${publishedCount} | Pending: ${pendingCount}`);
+  } catch (err: any) { console.error(`>>> [Heartbeat] Error: ${err.message}`); }
+}, 5*60*1000);
 
-    const { data: skills, error } = await supabase
-      .from("skills")
-      .select("*")
-      .eq("is_active", true)
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      console.error("Skills list error:", error.message);
-      return res.status(500).json({ error: "Failed to fetch skills" });
-    }
-
-    const result = {
-      skills: skills || [],
-      total: skills?.length || 0,
-      categories: ["development", "content", "automation", "analysis", "security"]
-    };
-
-    cacheSet("skills:list", result, 15 * 60 * 1000); // Cache 15 min
-    res.json(result);
-  } catch (err: any) {
-    console.error("Skills list error:", err.message);
-    res.status(500).json({ error: "Failed to fetch skills" });
-  }
-});
-
-// GET /api/skills/search?q= - Buscar skills (público)
-app.get("/api/skills/search", async (req, res) => {
+// AutoQueue
+console.log(">>> [AutoQueue] Starting interval...");
+setInterval(async () => {
   try {
-    const { q, category } = req.query;
+    const { data: pending, error } = await supabase.from("posts").select("id").eq("status", "pending").limit(20);
+    if (!error && pending?.length) queueService.addTasks(pending.map(p => p.id));
+  } catch (err: any) { console.error(">>> [AutoQueue] Error:", err.message); }
+}, 5*60*1000);
 
-    if (!q && !category) {
-      return res.status(400).json({ error: "Provide 'q' or 'category' parameter" });
-    }
-
-    const cacheKey = `skills:search:${q}:${category}`;
-    const cached = cacheGet(cacheKey);
-    if (cached) return res.json(cached);
-
-    let query = supabase
-      .from("skills")
-      .select("*")
-      .eq("is_active", true);
-
-    if (category) {
-      const catLower = (category as string).toLowerCase();
-      query = query.ilike("category", catLower);
-    }
-
-    if (q) {
-      // Supabase não suporta busca full-text em array diretamente, filtramos depois
-      const { data: allSkills, error } = await query;
-      if (error) throw new Error(error.message);
-
-      const searchTerm = (q as string).toLowerCase();
-      const filtered = (allSkills || []).filter(skill =>
-        skill.name?.toLowerCase().includes(searchTerm) ||
-        skill.description?.toLowerCase().includes(searchTerm) ||
-        skill.long_description?.toLowerCase().includes(searchTerm) ||
-        (skill.tags && skill.tags.some((tag: string) => tag.toLowerCase().includes(searchTerm)))
-      );
-
-      const result = { query: q, skills: filtered, total: filtered.length };
-      cacheSet(cacheKey, result, 10 * 60 * 1000);
-      return res.json(result);
-    }
-
-    const { data: skills, error } = await query.order("created_at", { ascending: false });
-    if (error) throw new Error(error.message);
-
-    const result = { query: "", skills: skills || [], total: skills?.length || 0 };
-    cacheSet(cacheKey, result, 10 * 60 * 1000);
-    res.json(result);
-  } catch (err: any) {
-    console.error("Skills search error:", err.message);
-    res.status(500).json({ error: "Failed to search skills" });
-  }
-});
-
-// GET /api/skills/:slug - Detalhe da skill (público)
-app.get("/api/skills/:slug", async (req, res) => {
+// RetryHandler
+setInterval(async () => {
   try {
-    const { slug } = req.params;
-
-    const cached = cacheGet(`skills:detail:${slug}`);
-    if (cached) return res.json(cached);
-
-    const { data: skill, error } = await supabase
-      .from("skills")
-      .select("*")
-      .eq("slug", slug)
-      .eq("is_active", true)
-      .single();
-
-    if (error || !skill) {
-      return res.status(404).json({ error: "Skill not found" });
+    const oneHourAgo = new Date(Date.now() - 60*60*1000).toISOString();
+    const { data: errorPosts } = await supabase.from("posts").select("id, retry_count").eq("status", "error").lt("updated_at", oneHourAgo).lt("retry_count", 3).limit(10);
+    if (errorPosts?.length) {
+      const idsToRetry = errorPosts.map(p => p.id);
+      await supabase.from("posts").update({ status: "pending" }).in("id", idsToRetry);
     }
-
-    // Incrementar downloads
-    await supabase
-      .from("skills")
-      .update({ downloads: (skill.downloads || 0) + 1 })
-      .eq("id", skill.id);
-
-    const result = { ...skill, downloads: (skill.downloads || 0) + 1 };
-    cacheSet(`skills:detail:${slug}`, result, 30 * 60 * 1000); // Cache 30 min
-    res.json(result);
-  } catch (err: any) {
-    console.error("Skill detail error:", err.message);
-    res.status(500).json({ error: "Failed to fetch skill" });
-  }
-});
-
-// POST /api/skills/:slug/execute - Executar skill (requer API Key)
-app.post("/api/skills/:slug/execute", apiKeyRateLimit, async (req, res) => {
-  try {
-    const { slug } = req.params;
-    const apiKey = req.header("X-API-Key");
-    const userInput = req.body;
-
-    if (!apiKey) {
-      return res.status(401).json({ error: "API Key required. Add X-API-Key header." });
-    }
-
-    // Buscar usuário
-    const { data: user, error: userError } = await supabase
-      .from("users")
-      .select("*")
-      .eq("api_key", apiKey)
-      .single();
-
-    if (userError || !user) {
-      return res.status(403).json({ error: "Invalid API Key" });
-    }
-
-    // Buscar skill
-    const { data: skill, error: skillError } = await supabase
-      .from("skills")
-      .select("*")
-      .eq("slug", slug)
-      .eq("is_active", true)
-      .single();
-
-    if (skillError || !skill) {
-      return res.status(404).json({ error: "Skill not found or inactive" });
-    }
-
-    // PASSO 1: Avaliar segurança antes de executar
-    const warnings = scanForDanger(skill.code || "");
-    let riskLevel = "low";
-    let evaluationScore = 0.95;
-    let evaluationExplanation = "Safe execution";
-
-    if (warnings.length > 0) {
-      riskLevel = "high";
-      evaluationScore = 0.2;
-      evaluationExplanation = `Dangerous patterns detected: ${warnings.join(", ")}`;
-      console.log(`[Security] Blocked ${slug}: ${warnings.join(", ")}`);
-      return res.status(403).json({
-        error: "Skill blocked by security evaluator",
-        skill: slug,
-        risk: "high",
-        score: evaluationScore,
-        explanation: evaluationExplanation,
-        warnings: warnings,
-        message: "This skill contains dangerous patterns and cannot be executed"
-      });
-    }
-
-    // PASSO 2: Verificar limite do plano
-    const planCheck = checkPlanLimit(user);
-    if (!planCheck.allowed) {
-      return res.status(402).json({
-        error: "Monthly request limit reached",
-        plan: user.plan,
-        limit: planCheck.limit,
-        usage_count: user.usage_count,
-        message: "Upgrade to Pro for more requests or wait for next month reset"
-      });
-    }
-
-    // Incrementar usage_count do usuário
-    await supabase
-      .from("users")
-      .update({ usage_count: (user.usage_count || 0) + 1 })
-      .eq("id", user.id);
-
-    // Log de uso
-    await supabase
-      .from("usage_logs")
-      .insert({
-        user_id: user.id,
-        endpoint: `/api/skills/${slug}/execute`,
-        cost: user.plan === "pro" ? 0.001 : 0
-      });
-
-    // Executar skill (Bloco 2: aqui chamará a IA, Bloco 3: executará código)
-    // Por enquanto, retorna a descrição da skill com os inputs
-    const executionResult = {
-      skill_id: skill.id,
-      skill_name: skill.name,
-      status: "executed",
-      input_received: userInput,
-      message: "Skill execution simulated (full execution in Bloco 2-3)",
-      security: {
-        risk: riskLevel,
-        score: evaluationScore,
-        explanation: evaluationExplanation,
-        warnings: warnings,
-        evaluator: "local-scan"
-      },
-      usage_remaining: planCheck.remaining
-    };
-
-    res.json(executionResult);
-  } catch (err: any) {
-    console.error("Skill execution error:", err.message);
-    res.status(500).json({ error: "Failed to execute skill" });
-  }
-});
+  } catch (err: any) { console.error(">>> [RetryHandler] Error:", err.message); }
+}, 30*60*1000);
 
 // ==========================================
 // Global Error Handlers
 // ==========================================
-process.on("uncaughtException", (error) => {
-  console.error("UNCAUGHT EXCEPTION:", error.message);
-  if (process.env.SENTRY_DSN) Sentry.captureException(error);
-});
+process.on("uncaughtException", (error) => { console.error("UNCAUGHT EXCEPTION:", error.message); if (process.env.SENTRY_DSN) Sentry.captureException(error); });
+process.on("unhandledRejection", (reason) => { console.error("UNHANDLED REJECTION:", reason); if (process.env.SENTRY_DSN && reason instanceof Error) Sentry.captureException(reason); });
 
-process.on("unhandledRejection", (reason) => {
-  console.error("UNHANDLED REJECTION:", reason);
-  if (process.env.SENTRY_DSN && reason instanceof Error) Sentry.captureException(reason);
-});
-
+// ==========================================
+// START SERVER
+// ==========================================
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({ server: { middlewareMode: true }, appType: "spa" });
@@ -1595,30 +369,15 @@ async function startServer() {
 
   const server = app.listen(PORT, "0.0.0.0", () => {
     console.log(`>>> Server running at http://localhost:${PORT}`);
-    console.log(`>>> WebSocket server starting on ws://localhost:${PORT}`);
     runIngestion();
   });
 
-  // WebSocket setup para updates em tempo real
   wss = new WebSocketServer({ server, path: "/ws/stats" });
   wss.on("connection", (ws) => {
-    console.log("[WebSocket] Client connected");
     wsClients.add(ws);
-
-    // Envia stats iniciais
-    supabase.from("posts").select("*", { count: "exact", head: true }).eq("status", "published").then(({ count }) => {
-      ws.send(JSON.stringify({ type: "stats", postsCount: count }));
-    });
-
-    ws.on("close", () => {
-      console.log("[WebSocket] Client disconnected");
-      wsClients.delete(ws);
-    });
-
-    ws.on("error", (err) => {
-      console.error("[WebSocket] Error:", err.message);
-      wsClients.delete(ws);
-    });
+    supabase.from("posts").select("*", { count: "exact", head: true }).eq("status", "published").then(({ count }) => { ws.send(JSON.stringify({ type: "stats", postsCount: count })); });
+    ws.on("close", () => wsClients.delete(ws));
+    ws.on("error", () => wsClients.delete(ws));
   });
 }
 
