@@ -1,4 +1,5 @@
 import "dotenv/config";
+import OpenAI from "openai";
 import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
@@ -409,6 +410,55 @@ setInterval(async () => {
 }, 30 * 60 * 1000);
 
 app.get("/api/health", (req, res) => res.json({ status: "alive" }));
+
+const chatClients: Record<string, OpenAI> = {};
+
+function getGroqClient(model: string): OpenAI {
+  const key = model.includes("qwen") ? process.env.GROQ_API_KEY! : process.env.OPENAI_API_KEY!;
+  const baseUrl = model.includes("qwen") ? "https://api.groq.com/openai/v1" : "https://api.openai.com/v1";
+  const cacheKey = `${model}-${key}`;
+  if (!chatClients[cacheKey]) {
+    chatClients[cacheKey] = new OpenAI({ apiKey: key, baseURL: baseUrl });
+  }
+  return chatClients[cacheKey];
+}
+
+app.post("/api/chat", apiKeyRateLimit, async (req, res) => {
+  const apiKey = req.header("X-API-Key") || req.query.key;
+  if (!apiKey) return res.status(401).json({ error: "API Key required" });
+
+  const { data: user } = await supabase.from("users").select("*").eq("api_key", apiKey).single();
+  if (!user) return res.status(403).json({ error: "Invalid API Key" });
+
+  if (user.plan === "free" && user.usage_count >= 100) {
+    return res.status(429).json({ error: "Free limit reached (100/mo)" });
+  }
+
+  const { model, messages, temperature = 0.7 } = req.body;
+  if (!model || !messages) {
+    return res.status(400).json({ error: "model and messages required" });
+  }
+
+  try {
+    const client = getGroqClient(model);
+    const response = await client.chat.completions.create({
+      model: model.includes("/") ? model : model,
+      messages,
+      temperature
+    });
+
+    await supabase.from("users").update({ usage_count: user.usage_count + 1 }).eq("api_key", apiKey);
+
+    res.json({ 
+      model: response.model,
+      choices: response.choices,
+      usage: response.usage
+    });
+  } catch (err: any) {
+    console.error("[Chat] Error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 app.get("/api/stats", async (req, res) => {
   const [{ count: postsCount }, { count: feedsCount }] = await Promise.all([
