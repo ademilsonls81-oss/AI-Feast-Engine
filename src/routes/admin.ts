@@ -3,8 +3,22 @@ import { supabase } from "../lib/supabase.js";
 import { checkAdmin } from "../middleware/auth.js";
 import { queueService } from "../services/queueService.js";
 import { logAuditAction } from "../middleware/auditLog.js";
+import rateLimit from "express-rate-limit";
+
+// Rate limiter para endpoints admin: 5 req/min por IP
+const adminRateLimit = rateLimit({
+  windowMs: 60 * 1000,
+  max: 5,
+  message: { error: "Too many admin requests — try again in 1 minute" },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || "unknown",
+});
 
 const router = Router();
+
+// Aplicar rate limiter em TODAS as rotas admin
+router.use(adminRateLimit);
 
 // Helpers (referenciados pelas rotas)
 declare module "express-serve-static-core" {
@@ -238,7 +252,8 @@ router.get("/skills/discover", checkAdmin, async (_req, res) => {
 
 // POST /api/admin/skills/validate-batch - Normalizar + validar (dry run)
 // IMPORTANTE: Rota literal DEVE vir antes de rotas com :id
-router.post("/skills/validate-batch", checkAdmin, async (_req, res) => {
+// Aceita body opcional { repos?: string[] } para processar repos específicos
+router.post("/skills/validate-batch", checkAdmin, async (req, res) => {
   try {
     const { discoverRepos } = await import("../services/githubDiscovery.js");
     const { extractSkillsFromRepo } = await import("../services/skillExtractor.js");
@@ -246,9 +261,24 @@ router.post("/skills/validate-batch", checkAdmin, async (_req, res) => {
     const { validateSkill } = await import("../services/skillValidator.js");
 
     const groqApiKey = process.env.GROQ_API_KEY || "";
+    const requestedRepos = (req.body as any)?.repos as string[] | undefined;
 
-    console.log("[ValidateBatch] Starting...");
-    const repos = await discoverRepos();
+    let repos: any[];
+    if (requestedRepos && requestedRepos.length > 0) {
+      // Processar repos específicos fornecidos pelo admin
+      console.log(`[ValidateBatch] Processing ${requestedRepos.length} specific repos...`);
+      repos = requestedRepos.map(fullName => ({
+        name: fullName.split("/")[1] || "",
+        full_name: fullName,
+        description: "",
+        html_url: `https://github.com/${fullName}`,
+        stars: 0
+      }));
+    } else {
+      // Discovery automático
+      console.log("[ValidateBatch] Starting auto-discovery...");
+      repos = await discoverRepos();
+    }
 
     const approved: any[] = [];
     const rejected: any[] = [];
@@ -279,6 +309,86 @@ router.post("/skills/validate-batch", checkAdmin, async (_req, res) => {
       rejected: rejected.length,
       approved_skills: approved.slice(0, 5),
       rejected_skills: rejected
+    });
+
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/admin/skills/import - Pipeline completo: discover → extract → normalize → validate → import
+// IMPORTANTE: Rota literal DEVE vir antes de rotas com :id
+router.post("/skills/import", checkAdmin, async (req, res) => {
+  try {
+    const dryRun = (req.body as any)?.dryRun === true;
+
+    const { discoverRepos } = await import("../services/githubDiscovery.js");
+    const { extractSkillsFromRepo } = await import("../services/skillExtractor.js");
+    const { normalizeSkill } = await import("../services/skillNormalizer.js");
+    const { validateSkill } = await import("../services/skillValidator.js");
+    const { importSkills } = await import("../services/skillImporter.js");
+
+    const groqApiKey = process.env.GROQ_API_KEY || "";
+
+    console.log(`[Import] Starting pipeline${dryRun ? " (DRY RUN)" : ""}...`);
+
+    // 1. Discovery
+    const repos = await discoverRepos();
+    console.log(`[Import] Discovered ${repos.length} repos`);
+
+    // 2. Extract + Normalize + Validate
+    const validatedSkills: any[] = [];
+    let extractedCount = 0;
+
+    for (const repo of repos.slice(0, 5)) {
+      const rawSkills = await extractSkillsFromRepo(repo);
+      extractedCount += rawSkills.length;
+
+      for (const raw of rawSkills.slice(0, 3)) {
+        const normalized = normalizeSkill(raw);
+        const result = await validateSkill(normalized, groqApiKey);
+        validatedSkills.push(result);
+
+        await new Promise(r => setTimeout(r, 300));
+      }
+    }
+
+    const approved = validatedSkills.filter(s => s.approved);
+    console.log(`[Import] ${approved.length} skills approved out of ${validatedSkills.length} validated`);
+
+    // 3. Import (ou dry run)
+    let report;
+    if (dryRun) {
+      // Simular import sem salvar
+      report = {
+        inserted: approved.length,
+        updated: 0,
+        skipped: validatedSkills.length - approved.length,
+        errors: [],
+        details: {
+          inserted: approved.map(s => s.skill.name),
+          updated: [],
+          skipped: validatedSkills.filter(s => !s.approved).map(s => ({
+            name: s.skill.name,
+            reason: `score: ${s.score}, approved: ${s.approved}`
+          }))
+        }
+      };
+    } else {
+      // Import real
+      report = await importSkills(approved);
+    }
+
+    res.json({
+      dry_run: dryRun,
+      discovered: repos.length,
+      extracted: extractedCount,
+      approved: approved.length,
+      inserted: report.inserted,
+      updated: report.updated,
+      skipped: report.skipped,
+      errors: report.errors,
+      details: report.details
     });
 
   } catch (err: any) {
