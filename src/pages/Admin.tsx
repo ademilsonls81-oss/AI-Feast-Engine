@@ -32,6 +32,13 @@ interface ImportLog {
   triggered_by: string;
 }
 
+// Helper: obter Bearer token da sessão Supabase
+async function getAuthHeaders(): Promise<Record<string, string>> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) throw new Error("Not authenticated");
+  return { "Authorization": `Bearer ${session.access_token}` };
+}
+
 export default function Admin() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [feeds, setFeeds] = useState<any[]>([]);
@@ -46,8 +53,6 @@ export default function Admin() {
   const [skills, setSkills] = useState<Skill[]>([]);
   const [skillPrompt, setSkillPrompt] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
-  const [adminSecret, setAdminSecret] = useState(() => localStorage.getItem("adminSecret") || "");
-  const [showAdminSecret, setShowAdminSecret] = useState(false);
   const [generatedSkillPreview, setGeneratedSkillPreview] = useState<any>(null);
 
   // Import logs state
@@ -192,10 +197,6 @@ export default function Admin() {
   }
 
   const handleGenerateSkill = async () => {
-    if (!adminSecret) {
-      alert("⚠️ Insira o Admin Secret para continuar");
-      return;
-    }
     if (skillPrompt.trim().length < 10) {
       alert("⚠️ Descreva a skill com pelo menos 10 caracteres");
       return;
@@ -205,9 +206,8 @@ export default function Admin() {
     setGeneratedSkillPreview(null);
 
     try {
-      const res = await api.post("/api/admin/skills/generate", { prompt: skillPrompt }, {
-        headers: { "X-Admin-Secret": adminSecret }
-      });
+      const headers = await getAuthHeaders();
+      const res = await api.post("/api/admin/skills/generate", { prompt: skillPrompt }, { headers });
 
       if (res.data.skill) {
         setGeneratedSkillPreview(res.data.skill);
@@ -217,23 +217,16 @@ export default function Admin() {
       }
     } catch (err: any) {
       const errorMsg = err.response?.data?.error || err.message || "Erro desconhecido";
-      const details = err.response?.data?.details || "";
-      alert(`❌ Erro ao gerar skill: ${errorMsg}\n${details}`);
+      alert(`❌ Erro ao gerar skill: ${errorMsg}`);
     } finally {
       setIsGenerating(false);
     }
   };
 
   const handleToggleSkill = async (skill: Skill) => {
-    if (!adminSecret) {
-      alert("⚠️ Insira o Admin Secret para continuar");
-      return;
-    }
-
     try {
-      await api.post(`/api/admin/skills/${skill.id}/toggle`, {}, {
-        headers: { "X-Admin-Secret": adminSecret }
-      });
+      const headers = await getAuthHeaders();
+      await api.post(`/api/admin/skills/${skill.id}/toggle`, {}, { headers });
       fetchSkills();
     } catch (err: any) {
       alert("Erro ao alternar skill: " + (err.response?.data?.error || err.message));
@@ -242,15 +235,9 @@ export default function Admin() {
 
   const handleDeleteSkill = async (skill: Skill) => {
     if (!window.confirm(`Tem certeza que deseja deletar "${skill.name}"?`)) return;
-    if (!adminSecret) {
-      alert("⚠️ Insira o Admin Secret para continuar");
-      return;
-    }
-
     try {
-      await api.delete(`/api/admin/skills/${skill.id}`, {
-        headers: { "X-Admin-Secret": adminSecret }
-      });
+      const headers = await getAuthHeaders();
+      await api.delete(`/api/admin/skills/${skill.id}`, { headers });
       fetchSkills();
       alert("Skill deletada com sucesso");
     } catch (err: any) {
@@ -269,12 +256,10 @@ export default function Admin() {
   }
 
   async function handleRunImport() {
-    if (!adminSecret) { alert("⚠️ Insira o Admin Secret"); return; }
     setIsImporting(true);
     try {
-      const res = await api.post("/api/admin/skills/import/manual", {}, {
-        headers: { "X-Admin-Secret": adminSecret }
-      });
+      const headers = await getAuthHeaders();
+      const res = await api.post("/api/admin/skills/import/manual", {}, { headers });
       alert(`Import concluído: ${res.data.log.inserted} inseridas, ${res.data.log.updated} atualizadas`);
       fetchImportLogs();
       fetchSkills();
@@ -286,12 +271,10 @@ export default function Admin() {
   }
 
   async function handleDryRun() {
-    if (!adminSecret) { alert("⚠️ Insira o Admin Secret"); return; }
     setIsImporting(true);
     try {
-      const res = await api.post("/api/admin/skills/import/manual", { dryRun: true }, {
-        headers: { "X-Admin-Secret": adminSecret }
-      });
+      const headers = await getAuthHeaders();
+      const res = await api.post("/api/admin/skills/import/manual", { dryRun: true }, { headers });
       setDryRunResult(res.data.log);
       setShowDryRunModal(true);
     } catch (err: any) {
@@ -396,30 +379,6 @@ export default function Admin() {
             <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
               <Sparkles className="w-5 h-5 text-neon-cyan" /> Gerenciar Skills
             </h2>
-
-            {/* Admin Secret Input */}
-            <div className="mb-6 p-4 bg-black/30 border border-white/5 rounded-xl">
-              <label className="text-xs text-gray-400 mb-2 block">Admin Secret (salvo localmente)</label>
-              <div className="relative">
-                <input
-                  type={showAdminSecret ? "text" : "password"}
-                  placeholder="Cole aqui seu ADMIN_SECRET"
-                  className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 pr-12 text-sm focus:border-neon-purple outline-none transition-all font-mono"
-                  value={adminSecret}
-                  onChange={e => {
-                    setAdminSecret(e.target.value);
-                    localStorage.setItem("adminSecret", e.target.value);
-                  }}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowAdminSecret(!showAdminSecret)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white transition-colors p-1"
-                >
-                  {showAdminSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
-              </div>
-            </div>
 
             {/* Generate Skill Form */}
             <div className="space-y-4 mb-8">
