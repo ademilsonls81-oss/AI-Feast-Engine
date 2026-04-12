@@ -44,18 +44,21 @@ function saveConfig(config) {
 function parseArgs(argv) {
   const args = argv.slice(2);
   const cmd = args[0];
-  const slug = args[1];
   const flags = {};
+  let positional = [];
 
-  for (let i = 2; i < args.length; i++) {
+  for (let i = 1; i < args.length; i++) {
     if (args[i].startsWith('--')) {
       const key = args[i].replace('--', '');
       const val = args[i + 1] && !args[i + 1].startsWith('--') ? args[++i] : true;
       flags[key] = val;
+    } else {
+      positional.push(args[i]);
     }
   }
 
-  return { cmd, slug, flags, args };
+  const slug = positional[0] || null;
+  return { cmd, slug, flags, args, positional };
 }
 
 // ============================================
