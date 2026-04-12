@@ -16,6 +16,20 @@ import crypto from "crypto";
 import { WebSocketServer, WebSocket } from "ws";
 import * as Sentry from "@sentry/node";
 
+// ==========================================
+// SECURITY: Timing-safe string comparison
+// ==========================================
+function safeCompare(a: string, b: string): boolean {
+  try {
+    const bufA = Buffer.from(a);
+    const bufB = Buffer.from(b);
+    if (bufA.length !== bufB.length) return false;
+    return crypto.timingSafeEqual(bufA, bufB);
+  } catch {
+    return false;
+  }
+}
+
 console.log(">>> AI FEAST ENGINE SERVER STARTING...");
 console.log(">>> QueueService imported successfully");
 
@@ -430,8 +444,8 @@ function getChatClient(model: string): OpenAI {
 }
 
 app.post("/api/chat", apiKeyRateLimit, async (req, res) => {
-  const apiKey = req.header("X-API-Key") || req.query.key;
-  if (!apiKey) return res.status(401).json({ error: "API Key required" });
+  const apiKey = req.header("X-API-Key");
+  if (!apiKey) return res.status(401).json({ error: "API Key required — use header X-API-Key" });
 
   const { data: user } = await supabase.from("users").select("*").eq("api_key", apiKey).single();
   if (!user) return res.status(403).json({ error: "Invalid API Key" });
@@ -1042,8 +1056,8 @@ app.get("/sitemap.xml", async (req, res) => {
 // NEW: Verified Score Endpoint
 // ==========================================
 app.get("/api/verified", apiKeyRateLimit, async (req, res) => {
-  const apiKey = req.header("X-API-Key") || req.query.key;
-  if (!apiKey) return res.status(401).json({ error: "API Key required" });
+  const apiKey = req.header("X-API-Key");
+  if (!apiKey) return res.status(401).json({ error: "API Key required — use header X-API-Key" });
 
   const { data: user } = await supabase.from("users").select("*").eq("api_key", apiKey).single();
   if (!user) return res.status(403).json({ error: "Invalid API Key" });
@@ -1197,8 +1211,8 @@ app.get("/api/search", apiKeyRateLimit, async (req, res) => {
 // UPDATED: Feed endpoint com Cache + Pagination + Filtros
 // ==========================================
 app.get("/api/feed", apiKeyRateLimit, async (req, res) => {
-  const apiKey = req.header("X-API-Key") || req.query.key;
-  if (!apiKey) return res.status(401).json({ error: "API Key required" });
+  const apiKey = req.header("X-API-Key");
+  if (!apiKey) return res.status(401).json({ error: "API Key required — use header X-API-Key" });
 
   const { data: user } = await supabase.from("users").select("*").eq("api_key", apiKey).single();
   if (!user) return res.status(403).json({ error: "Invalid API Key" });

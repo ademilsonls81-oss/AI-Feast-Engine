@@ -13,3 +13,6 @@ coverage/
 # Local dev scripts with potential secrets
 qwen.py
 cli/qwen-chat.py
+
+# Backup files — never commit
+*.bak
