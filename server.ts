@@ -211,6 +211,16 @@ app.post("/api/stripe-webhook", express.raw({ type: "application/json" }), async
 
 // JSON parsing para todas as outras rotas
 app.use(express.json({ limit: "1mb" }));
+app.use(express.urlencoded({ extended: true, limit: "1mb" }));
+
+// Hard limit: rejeitar payloads maiores que 10MB
+app.use((req, res, next) => {
+  const contentLength = parseInt(req.headers["content-length"] || "0");
+  if (contentLength > 10 * 1024 * 1024) {
+    return res.status(413).json({ error: "Payload too large — max 10MB" });
+  }
+  next();
+});
 
 async function checkAdmin(req: Request, res: Response, next: NextFunction) {
   const authHeader = req.header("Authorization");
@@ -1223,25 +1233,20 @@ app.get("/api/feed", apiKeyRateLimit, async (req, res) => {
 
   const { lang, category, limit = 20, offset = 0 } = req.query;
 
-  // Cache key baseado nos parâmetros
-  const cacheKey = `feed:${apiKey}:${lang}:${category}:${limit}:${offset}`;
-  const cached = cacheGet(cacheKey);
-  if (cached) {
-    await supabase.from("users").update({ usage_count: user.usage_count + 1 }).eq("id", user.id);
-    await supabase.from("usage_logs").insert({
-      user_id: user.id,
-      endpoint: "/api/feed",
-      cost: user.plan === "pro" ? 0.001 : 0
-    });
-    return res.json(cached);
-  }
-
+  // Incrementar usage_count UMA única vez (após validação)
   await supabase.from("users").update({ usage_count: user.usage_count + 1 }).eq("id", user.id);
   await supabase.from("usage_logs").insert({
     user_id: user.id,
     endpoint: "/api/feed",
     cost: user.plan === "pro" ? 0.001 : 0
   });
+
+  // Cache key baseado nos parâmetros
+  const cacheKey = `feed:${apiKey}:${lang}:${category}:${limit}:${offset}`;
+  const cached = cacheGet(cacheKey);
+  if (cached) {
+    return res.json(cached);
+  }
 
   let query = supabase
     .from("posts")
