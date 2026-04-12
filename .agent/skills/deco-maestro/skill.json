@@ -1,0 +1,5 @@
+{
+  "name": "deco-maestro",
+  "description": "Orquestra múltiplos agentes de IA trabalhando em sequência ou paralelo para resolver tarefas complexas de desenvolvimento.",
+  "argument-hint": "lista de tarefas separadas por vírgula, ex: planejar, executar, auditar"
+}
