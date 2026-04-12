@@ -139,13 +139,12 @@ app.use(cors({
   credentials: true
 }));
 
-app.use(express.json());
 app.use(globalIpLimit);
 
 // Sentry está habilitado apenas se SENTRY_DSN estiver configurado
 // A instrumentação automática do Express já funciona com Sentry.init()
 
-// Stripe Webhook
+// Stripe Webhook - DEVE vir ANTES do express.json() para preservar raw body
 app.post("/api/stripe-webhook", express.raw({ type: "application/json" }), async (req, res) => {
   const sig = req.headers["stripe-signature"];
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
@@ -169,8 +168,8 @@ app.post("/api/stripe-webhook", express.raw({ type: "application/json" }), async
       const userId = session.client_reference_id;
       const customerId = session.customer;
       console.log(`💰 Payment success: User ${userId}, Customer ${customerId}`);
-      await supabase.from("users").update({ 
-        plan: "pro", 
+      await supabase.from("users").update({
+        plan: "pro",
         stripe_customer_id: customerId,
         rate_limit: 100
       }).eq("id", userId);
@@ -183,9 +182,9 @@ app.post("/api/stripe-webhook", express.raw({ type: "application/json" }), async
         .eq("stripe_customer_id", subscription.customer)
         .single();
       if (userToDowngrade) {
-        await supabase.from("users").update({ 
-          plan: "free", 
-          rate_limit: 10 
+        await supabase.from("users").update({
+          plan: "free",
+          rate_limit: 10
         }).eq("id", userToDowngrade.id);
         console.log(`📉 User ${userToDowngrade.id} downgraded to Free.`);
       }
@@ -196,26 +195,32 @@ app.post("/api/stripe-webhook", express.raw({ type: "application/json" }), async
   res.json({ received: true });
 });
 
+// JSON parsing para todas as outras rotas
+app.use(express.json({ limit: "1mb" }));
+
 async function checkAdmin(req: Request, res: Response, next: NextFunction) {
   const authHeader = req.header("Authorization");
-  const userId = req.header("X-User-Id");
-  
+
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return res.status(401).json({ error: "Unauthorized — Bearer token required" });
+  }
+
+  const token = authHeader.replace("Bearer ", "");
+
   try {
-    let internalId = userId;
-    
-    if (authHeader) {
-      const token = authHeader.replace("Bearer ", "");
-      const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-      if (authError || !user) throw new Error("Unauthorized");
-      internalId = user.id;
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    if (authError || !user) {
+      return res.status(401).json({ error: "Invalid or expired token" });
     }
 
-    if (!internalId) return res.status(401).json({ error: "Unauthorized" });
+    const { data: userData } = await supabase
+      .from("users").select("role").eq("id", user.id).single();
 
-    const { data: userData } = await supabase.from("users").select("role").eq("id", internalId).single();
-    if (userData?.role !== "admin") return res.status(403).json({ error: "Admin access required" });
+    if (userData?.role !== "admin") {
+      return res.status(403).json({ error: "Admin access required" });
+    }
 
-    (req as any).user = { id: internalId };
+    (req as any).user = { id: user.id };
     next();
   } catch (err) {
     res.status(401).json({ error: "Authentication failed" });
@@ -413,10 +418,11 @@ app.get("/api/health", (req, res) => res.json({ status: "alive" }));
 
 const chatClients: Record<string, OpenAI> = {};
 
-function getGroqClient(model: string): OpenAI {
-  const key = model.includes("qwen") ? process.env.GROQ_API_KEY! : process.env.OPENAI_API_KEY!;
-  const baseUrl = model.includes("qwen") ? "https://api.groq.com/openai/v1" : "https://api.openai.com/v1";
-  const cacheKey = `${model}-${key}`;
+function getChatClient(model: string): OpenAI {
+  const useGroq = process.env.OPENAI_BASE_URL?.includes("groq");
+  const key = useGroq ? process.env.OPENAI_API_KEY! : process.env.OPENAI_API_KEY || "local";
+  const baseUrl = useGroq ? "https://api.groq.com/openai/v1" : process.env.OPENAI_BASE_URL || "https://api.groq.com/openai/v1";
+  const cacheKey = `${model}-${baseUrl}`;
   if (!chatClients[cacheKey]) {
     chatClients[cacheKey] = new OpenAI({ apiKey: key, baseURL: baseUrl });
   }
@@ -440,7 +446,7 @@ app.post("/api/chat", apiKeyRateLimit, async (req, res) => {
   }
 
   try {
-    const client = getGroqClient(model);
+    const client = getChatClient(model);
     const response = await client.chat.completions.create({
       model: model.includes("/") ? model : model,
       messages,
@@ -458,40 +464,6 @@ app.post("/api/chat", apiKeyRateLimit, async (req, res) => {
     console.error("[Chat] Error:", err.message);
     res.status(500).json({ error: err.message });
   }
-});
-
-app.get("/api/stats", async (req, res) => {
-  const [{ count: postsCount }, { count: feedsCount }] = await Promise.all([
-    supabase.from("posts").select("*", { count: "exact", head: true }).eq("status", "published"),
-    supabase.from("feeds").select("*", { count: "exact", head: true })
-  ]);
-  res.json({ 
-    postsCount: postsCount || 0, 
-    feedsCount: feedsCount || 0, 
-    languages: 11 
-  });
-});
-
-app.get("/api/feed", apiKeyRateLimit, async (req, res) => {
-  const apiKey = req.header("X-API-Key") || req.query.key;
-  if (!apiKey) return res.status(401).json({ error: "API Key required" });
-
-  const { data: user } = await supabase.from("users").select("*").eq("api_key", apiKey).single();
-  if (!user) return res.status(403).json({ error: "Invalid API Key" });
-
-  if (user.plan === "free" && user.usage_count >= 100) {
-    return res.status(429).json({ error: "Free limit reached (100/mo)" });
-  }
-
-  await supabase.from("users").update({ usage_count: user.usage_count + 1 }).eq("id", user.id);
-  await supabase.from("usage_logs").insert({
-    user_id: user.id,
-    endpoint: "/api/feed",
-    cost: user.plan === "pro" ? 0.001 : 0
-  });
-
-  const { data: posts } = await supabase.from("posts").select("*").eq("status", "published").order("created_at", { ascending: false }).limit(20);
-  res.json({ posts: posts || [] });
 });
 
 app.post("/api/user/rotate-key", async (req, res) => {
@@ -636,24 +608,8 @@ app.patch("/api/admin/feeds/:id", checkAdmin, async (req, res) => {
 // BLOCO 2: ADMIN SKILLS GENERATOR
 // ==========================================
 
-// Middleware: verificar ADMIN_SECRET no header
-async function checkAdminSecret(req: Request, res: Response, next: NextFunction) {
-  const adminSecret = req.header("X-Admin-Secret");
-  const expectedSecret = process.env.ADMIN_SECRET;
-
-  if (!expectedSecret) {
-    return res.status(500).json({ error: "Admin secret not configured" });
-  }
-
-  if (!adminSecret || adminSecret !== expectedSecret) {
-    return res.status(403).json({ error: "Invalid admin secret" });
-  }
-
-  next();
-}
-
 // POST /api/admin/skills/generate - Gerar skill com IA
-app.post("/api/admin/skills/generate", checkAdminSecret, async (req, res) => {
+app.post("/api/admin/skills/generate", checkAdmin, async (req, res) => {
   try {
     const { prompt } = req.body;
 
@@ -670,15 +626,18 @@ Current timestamp: ${Date.now()}
 Return ONLY this JSON object with ALL fields (no markdown, no extra text):
 {"id":"snake_case","name":"Title","slug":"kebab","desc":"short","long_desc":"medium","category":"analysis","tags":["a","b","c"],"risk":"low","install":"npx aifeast x","run":"npx aifeast run x"}`;
 
-    // Chamar Groq com llama-3.1-8b-instant (500K tokens/day)
-    const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    const AI_BASE_URL = process.env.OPENAI_BASE_URL || "https://api.groq.com/openai/v1";
+    const AI_API_KEY = process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY || "";
+    
+    // Chamar IA para gerar skill
+    const groqResponse = await fetch(`${AI_BASE_URL}/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${process.env.GROQ_API_KEY}`
+        "Authorization": `Bearer ${AI_API_KEY}`
       },
       body: JSON.stringify({
-        model: "llama-3.1-8b-instant",
+        model: process.env.LOCAL_MODEL || "llama-3.1-8b-instant",
         messages: [
           { role: "system", content: "You are a JSON API. Return ONLY valid JSON." },
           { role: "user", content: userPrompt }
@@ -847,15 +806,17 @@ app.post("/api/skills/:slug/evaluate", async (req, res) => {
     // Scan por código perigoso
     const warnings = scanForDanger(skill.code || "");
 
-    // Avaliar via Groq
-    const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    // Avaliar via IA
+    const AI_BASE_URL = process.env.OPENAI_BASE_URL || "https://api.groq.com/openai/v1";
+    const AI_API_KEY = process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY || "";
+    const groqResponse = await fetch(`${AI_BASE_URL}/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${process.env.GROQ_API_KEY}`
+        "Authorization": `Bearer ${AI_API_KEY}`
       },
       body: JSON.stringify({
-        model: "llama-3.1-8b-instant",
+        model: process.env.LOCAL_MODEL || "llama-3.1-8b-instant",
         messages: [
           {
             role: "system",
@@ -923,7 +884,7 @@ Return ONLY JSON: {"risk":"low","score":0.95,"explanation":"Safe","warnings":[]}
 });
 
 // POST /api/admin/skills/:id/toggle - Ativar/desativar skill (com proteção do evaluator)
-app.post("/api/admin/skills/:id/toggle", checkAdminSecret, async (req, res) => {
+app.post("/api/admin/skills/:id/toggle", checkAdmin, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -965,7 +926,7 @@ app.post("/api/admin/skills/:id/toggle", checkAdminSecret, async (req, res) => {
 });
 
 // DELETE /api/admin/skills/:id - Deletar skill (com proteção do evaluator)
-app.delete("/api/admin/skills/:id", checkAdminSecret, async (req, res) => {
+app.delete("/api/admin/skills/:id", checkAdmin, async (req, res) => {
   try {
     const { id } = req.params;
 

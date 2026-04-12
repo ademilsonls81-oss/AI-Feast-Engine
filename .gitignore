@@ -9,3 +9,7 @@ coverage/
 
 .vercel
 .env*.local
+
+# Local dev scripts with potential secrets
+qwen.py
+cli/qwen-chat.py
