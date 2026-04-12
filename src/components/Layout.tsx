@@ -3,7 +3,7 @@ import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { signInWithGoogle } from "../lib/supabaseClient";
 import { motion } from "motion/react";
-import { LayoutDashboard, BookOpen, Shield, LogOut, Globe, Zap, User } from "lucide-react";
+import { LayoutDashboard, BookOpen, Shield, LogOut, Globe, Zap, User, Puzzle } from "lucide-react";
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const { user, profile, loading, signOut } = useAuth();
@@ -11,6 +11,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   const navItems = [
     { name: "Live Feed", path: "/feed", icon: Globe },
+    { name: "Skills", path: "/skills", icon: Puzzle },
     { name: "Docs", path: "/docs", icon: BookOpen },
   ];
 
