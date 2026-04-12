@@ -1,0 +1,239 @@
+import { Router, Request, Response } from "express";
+import { supabase } from "../lib/supabase.js";
+import { checkAdmin } from "../middleware/auth.js";
+import { queueService } from "../services/queueService.js";
+import { logAuditAction } from "../middleware/auditLog.js";
+
+const router = Router();
+
+// Helpers (referenciados pelas rotas)
+declare module "express-serve-static-core" {
+  interface Request {
+    user?: { id: string };
+  }
+}
+
+function cacheInvalidate(pattern?: string) {
+  // Re-export simplificado — o cache vive no server.ts
+  // Aqui apenas sinalizamos via broadcast
+}
+
+function broadcastWsUpdate(_data: any) {
+  // Placeholder — será chamado via server.ts
+}
+
+// GET /api/admin/posts
+router.get("/posts", checkAdmin, async (req, res) => {
+  const { data, error } = await supabase.from("posts").select("*").order("created_at", { ascending: false }).limit(100);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// POST /api/admin/process-batch
+router.post("/process-batch", checkAdmin, async (req, res) => {
+  const { data: pending } = await supabase.from("posts").select("id").eq("status", "pending").limit(50);
+  if (!pending?.length) return res.json({ message: "No pending posts" });
+
+  queueService.addTasks(pending.map(p => p.id));
+  logAuditAction((req as any).user.id, "PROCESS_BATCH_MANUAL", req, { count: pending.length });
+  res.json({ message: `Queueing ${pending.length} posts` });
+});
+
+// POST /api/admin/feeds
+router.post("/feeds", checkAdmin, async (req, res) => {
+  const { name, url, category } = req.body;
+  const { data, error } = await supabase.from("feeds").insert({ name, url, category }).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  logAuditAction((req as any).user.id, "ADD_FEED", req, { name, url });
+  res.json(data);
+});
+
+// GET /api/admin/feeds/summary
+router.get("/feeds/summary", checkAdmin, async (req, res) => {
+  try {
+    const { data: feeds } = await supabase.from("feeds").select("id, name, url, category").order("category");
+    const { data: posts } = await supabase.from("posts").select("category, status").eq("status", "published");
+
+    const feedByCategory: Record<string, number> = {};
+    feeds?.forEach(f => { const cat = f.category || "Uncategorized"; feedByCategory[cat] = (feedByCategory[cat] || 0) + 1; });
+
+    const postByCategory: Record<string, number> = {};
+    posts?.forEach(p => { const cat = p.category || "Uncategorized"; postByCategory[cat] = (postByCategory[cat] || 0) + 1; });
+
+    res.json({
+      total_feeds: feeds?.length || 0,
+      total_published_posts: posts?.length || 0,
+      feeds_by_category: feedByCategory,
+      posts_by_category: postByCategory,
+      feeds: feeds || []
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /api/admin/feeds/:id
+router.patch("/feeds/:id", checkAdmin, async (req, res) => {
+  const { category } = req.body;
+  const validCategories = ["Tech", "Finance", "Science", "Health", "General"];
+  if (!validCategories.includes(category)) {
+    return res.status(400).json({ error: "Categoria inválida", valid: validCategories });
+  }
+
+  const { data, error } = await supabase.from("feeds").update({ category }).eq("id", req.params.id).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  logAuditAction((req as any).user.id, "UPDATE_FEED_CATEGORY", req, { feed_id: req.params.id, category });
+  res.json(data);
+});
+
+// POST /api/admin/skills/generate
+router.post("/skills/generate", checkAdmin, async (req, res) => {
+  try {
+    const { prompt } = req.body;
+    if (!prompt || prompt.trim().length < 10) {
+      return res.status(400).json({ error: "Prompt deve ter pelo menos 10 caracteres" });
+    }
+
+    console.log(`[SkillGen] Gerando skill com prompt: ${prompt.substring(0, 100)}...`);
+
+    const userPrompt = `Create a NEW skill for: "${prompt}"
+
+Current timestamp: ${Date.now()}
+
+Return ONLY this JSON object with ALL fields (no markdown, no extra text):
+{"id":"snake_case","name":"Title","slug":"kebab","desc":"short","long_desc":"medium","category":"analysis","tags":["a","b","c"],"risk":"low","install":"npx aifeast x","run":"npx aifeast run x"}`;
+
+    const AI_BASE_URL = process.env.OPENAI_BASE_URL || "https://api.groq.com/openai/v1";
+    const AI_API_KEY = process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY || "";
+
+    const groqResponse = await fetch(`${AI_BASE_URL}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${AI_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: process.env.LOCAL_MODEL || "llama-3.1-8b-instant",
+        messages: [
+          { role: "system", content: "You are a JSON API. Return ONLY valid JSON." },
+          { role: "user", content: userPrompt }
+        ],
+        response_format: { type: "json_object" },
+        temperature: 0.3,
+        max_tokens: 1024
+      })
+    });
+
+    if (!groqResponse.ok) {
+      const errorText = await groqResponse.text();
+      console.error(`[SkillGen] Groq error: ${groqResponse.status} - ${errorText}`);
+      return res.status(500).json({ error: "Erro ao gerar skill com IA", details: errorText });
+    }
+
+    const groqData = await groqResponse.json();
+    let responseText = groqData.choices[0]?.message?.content || "";
+
+    responseText = responseText
+      .replace(/```json\s*/g, '')
+      .replace(/```\s*/g, '')
+      .replace(/^[\s\S]*?(\{)/, '$1')
+      .replace(/(\})[\s\S]*$/, '$1')
+      .trim();
+
+    let skillJson;
+    try {
+      skillJson = JSON.parse(responseText);
+    } catch (parseError: any) {
+      let fixed = responseText.replace(/,\s*([}\]])/g, '$1');
+      const openB = (fixed.match(/{/g) || []).length;
+      const closeB = (fixed.match(/}/g) || []).length;
+      for (let i = 0; i < openB - closeB; i++) fixed += '}';
+      try {
+        skillJson = JSON.parse(fixed);
+      } catch {
+        return res.status(500).json({ error: "IA gerou JSON inválido", raw: responseText.substring(0, 500) });
+      }
+    }
+
+    if (!skillJson.output_schema) skillJson.output_schema = { type: "object", properties: { result: { type: "string" } } };
+    if (!skillJson.input_schema) skillJson.input_schema = { type: "object", properties: { input: { type: "string" } } };
+    if (!skillJson.code) skillJson.code = `// TODO: Implement ${skillJson.id || 'skill'}`;
+
+    const desc = skillJson.desc || skillJson.description;
+    const longDesc = skillJson.long_desc || skillJson.long_description;
+    const risk = skillJson.risk || skillJson.risk_level;
+
+    if (!skillJson.id || !skillJson.name || !skillJson.slug) {
+      return res.status(422).json({ error: "Skill gerada está incompleta", received_fields: Object.keys(skillJson) });
+    }
+
+    const validCategories = ['development', 'content', 'automation', 'analysis', 'security'];
+    const category = validCategories.includes(skillJson.category) ? skillJson.category : 'analysis';
+    const validRisks = ['low', 'medium', 'high'];
+    const riskLevel = validRisks.includes(risk) ? risk : 'low';
+
+    const skill = {
+      id: skillJson.id,
+      name: skillJson.name,
+      slug: skillJson.slug,
+      description: desc || 'No description',
+      long_description: longDesc || desc || 'No detailed description',
+      category,
+      tags: Array.isArray(skillJson.tags) ? skillJson.tags.slice(0, 3) : ['skill'],
+      input_schema: skillJson.input_schema,
+      output_schema: skillJson.output_schema,
+      code: skillJson.code,
+      install_command: `npx aifeast ${skillJson.slug}`,
+      run_command: `npx aifeast run ${skillJson.slug}`,
+      risk_level: riskLevel,
+      verified: false,
+      is_active: true
+    };
+
+    const { data: savedSkill, error: dbError } = await supabase.from("skills").insert(skill).select().single();
+    if (dbError) {
+      if (dbError.code === '23505') return res.status(409).json({ error: "Skill com este id ou slug já existe" });
+      return res.status(500).json({ error: "Erro ao salvar skill no banco" });
+    }
+
+    res.status(201).json({ message: "Skill gerada e salva com sucesso!", skill: savedSkill });
+  } catch (err: any) {
+    console.error("[SkillGen] Erro inesperado:", err.message);
+    res.status(500).json({ error: "Erro interno ao gerar skill" });
+  }
+});
+
+// POST /api/admin/skills/:id/toggle
+router.post("/skills/:id/toggle", checkAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (id === "skill_evaluator") return res.status(403).json({ error: "Skill Evaluator cannot be deactivated" });
+
+    const { data: skill, error: fetchError } = await supabase.from("skills").select("is_active").eq("id", id).single();
+    if (fetchError || !skill) return res.status(404).json({ error: "Skill não encontrada" });
+
+    const { data: updatedSkill, error: updateError } = await supabase.from("skills").update({ is_active: !skill.is_active }).eq("id", id).select().single();
+    if (updateError) return res.status(500).json({ error: "Erro ao atualizar skill" });
+
+    res.json({ message: `Skill ${updatedSkill.is_active ? 'ativada' : 'desativada'}`, skill: updatedSkill });
+  } catch {
+    res.status(500).json({ error: "Erro interno" });
+  }
+});
+
+// DELETE /api/admin/skills/:id
+router.delete("/skills/:id", checkAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (id === "skill_evaluator") return res.status(403).json({ error: "Skill Evaluator cannot be deleted" });
+
+    const { error } = await supabase.from("skills").delete().eq("id", id);
+    if (error) return res.status(500).json({ error: "Erro ao deletar skill" });
+
+    res.json({ message: "Skill deletada com sucesso" });
+  } catch {
+    res.status(500).json({ error: "Erro interno" });
+  }
+});
+
+export default router;
