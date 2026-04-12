@@ -84,6 +84,20 @@ O arquivo de configuração é armazenado em `~/.aifeast/config.json`:
 
 `https://api.aifeastengine.com`
 
+## Troubleshooting
+
+### "API Key não configurada"
+Execute `aifeast config --key SUA_API_KEY` para salvar sua chave. A key é obtida no [Dashboard](https://www.aifeastengine.com).
+
+### "Comando desconhecido"
+Execute `aifeast help` para ver a lista de comandos válidos.
+
+### Timeout ao listar skills
+A API pode estar temporariamente indisponível. Verifique o status em [aifeastengine.com](https://www.aifeastengine.com) e tente novamente.
+
+### Erro 402 — Limite atingido
+Seu plano free atingiu o limite mensal de 100 requests. Faça upgrade para Pro ou aguarde o próximo ciclo.
+
 ## Licença
 
 MIT

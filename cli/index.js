@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
+const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8'));
 const API_BASE = 'https://api.aifeastengine.com';
 const CONFIG_DIR = path.join(os.homedir(), '.aifeast');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
@@ -39,6 +40,8 @@ function saveConfig(config) {
     fs.mkdirSync(CONFIG_DIR, { recursive: true });
   }
   fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
+  // Proteger arquivo: apenas dono pode ler/escrever (0600)
+  try { fs.chmodSync(CONFIG_FILE, 0o600); } catch {}
 }
 
 function parseArgs(argv) {
@@ -261,6 +264,13 @@ async function main() {
     case '--help':
     case '-h':
       showHelp();
+      break;
+    case '--version':
+    case '-v':
+      log(`${pkg.version}`, 'bold');
+      break;
+    case 'version':
+      log(`${pkg.name} v${pkg.version}`, 'bold');
       break;
     default:
       if (cmd) {
