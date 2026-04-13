@@ -15,11 +15,13 @@ export interface ImportReport {
   inserted: number;
   updated: number;
   skipped: number;
+  auto_activated: number;
   errors: string[];
   details: {
     inserted: string[];
     updated: string[];
     skipped: { name: string; reason: string }[];
+    auto_activated: string[];
   };
 }
 
@@ -33,8 +35,9 @@ export async function importSkills(
     inserted: 0,
     updated: 0,
     skipped: 0,
+    auto_activated: 0,
     errors: [],
-    details: { inserted: [], updated: [], skipped: [] }
+    details: { inserted: [], updated: [], skipped: [], auto_activated: [] }
   };
 
   // Filtrar apenas aprovados com score >= 0.6
@@ -109,7 +112,9 @@ export async function importSkills(
           report.details.updated.push(skill.name);
         }
       } else {
-        // REGRA: slug novo → INSERT com is_active: false, source: 'github'
+        // REGRA: slug novo → INSERT
+        // Auto-ativar se score >= 0.8, senão is_active: false (revisão manual)
+        const autoActivate = validated.score >= 0.8;
         const { error } = await supabase
           .from("skills")
           .insert({
@@ -126,7 +131,7 @@ export async function importSkills(
             validation_score: validated.score,
             risk_level: validated.risk_level,
             verified: false,
-            is_active: false,
+            is_active: autoActivate,
             input_schema: null,
             output_schema: null,
             code: null,
@@ -148,6 +153,10 @@ export async function importSkills(
         } else {
           report.inserted++;
           report.details.inserted.push(skill.name);
+          if (autoActivate) {
+            report.auto_activated++;
+            report.details.auto_activated.push(skill.name);
+          }
         }
       }
     } catch (err: any) {

@@ -33,6 +33,7 @@ export interface PipelineLog {
   inserted: number;
   updated: number;
   skipped: number;
+  auto_activated: number;
   errors: string[];
   triggered_by: "cron" | "manual";
 }
@@ -54,6 +55,7 @@ export async function runImportPipeline(
     inserted: 0,
     updated: 0,
     skipped: 0,
+    auto_activated: 0,
     errors: [],
     triggered_by: triggeredBy
   };
@@ -77,11 +79,11 @@ export async function runImportPipeline(
     // 2. Extract + Normalize + Validate
     const validatedSkills: any[] = [];
 
-    for (const repo of repos.slice(0, 5)) {
+    for (const repo of repos.slice(0, 15)) {
       const rawSkills = await extractSkillsFromRepo(repo);
       log.extracted += rawSkills.length;
 
-      for (const raw of rawSkills.slice(0, 3)) {
+      for (const raw of rawSkills.slice(0, 5)) {
         const normalized = normalizeSkill(raw);
         const result = await validateSkill(normalized, groqApiKey);
         validatedSkills.push(result);
@@ -104,6 +106,7 @@ export async function runImportPipeline(
       log.inserted = report.inserted;
       log.updated = report.updated;
       log.skipped = report.skipped;
+      log.auto_activated = report.auto_activated;
       log.errors = report.errors;
     }
 
@@ -128,7 +131,7 @@ export async function runImportPipeline(
             inserted: log.inserted,
             updated: log.updated,
             skipped: log.skipped,
-            errors: log.errors, // JSONB — array diretamente, sem stringify
+            errors: log.errors,
             triggered_by: log.triggered_by
           });
       } catch (err: any) {

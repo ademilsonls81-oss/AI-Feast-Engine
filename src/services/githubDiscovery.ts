@@ -3,7 +3,15 @@ const SEARCH_TERMS = [
   "ai skills",
   "agent skills",
   "awesome skills",
-  "prompt engineering"
+  "prompt engineering",
+  "llm tools",
+  "ai agents",
+  "claude skills",
+  "gpt tools",
+  "langchain tools",
+  "ai automation",
+  "prompt templates",
+  "ai workflows"
 ];
 
 const HEADERS: Record<string, string> = {
@@ -31,7 +39,7 @@ export async function discoverRepos(): Promise<RawSkillRepo[]> {
 
   for (const term of SEARCH_TERMS) {
     try {
-      const url = `${GITHUB_API}/search/repositories?q=${encodeURIComponent(term)}&sort=stars&order=desc&per_page=20`;
+      const url = `${GITHUB_API}/search/repositories?q=${encodeURIComponent(term)}&sort=stars&order=desc&per_page=30`;
       const res = await fetch(url, { headers: HEADERS });
 
       if (!res.ok) {
