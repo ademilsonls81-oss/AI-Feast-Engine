@@ -26,13 +26,19 @@ export default function Dashboard() {
       fetchLogs(user.id);
       fetchPosts();
       fetchStats();
+    }
+  }, [user]);
 
-      // Check if onboarding is needed
-      if (!profile?.onboarding_done) {
+  // Onboarding check — runs once when profile is first loaded
+  useEffect(() => {
+    if (user && profile && !loading) {
+      const needsOnboarding = profile.onboarding_done !== true;
+      if (needsOnboarding) {
         setShowWelcome(true);
       }
     }
-  }, [user, profile]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, profile]); // Run when user or profile changes
 
   async function fetchLogs(userId: string) {
     const { data, error } = await supabase
@@ -180,12 +186,13 @@ export default function Dashboard() {
   return (
     <div className="container mx-auto px-4 py-12">
       {/* Welcome Modal — shown once for new users */}
-      {showWelcome && (
+      {showWelcome && user && profile && profile.onboarding_done !== true && (
         <WelcomeModal
           onComplete={() => {
             setShowWelcome(false);
             refreshProfile();
           }}
+          existingApiKey={profile.api_key || null}
         />
       )}
 

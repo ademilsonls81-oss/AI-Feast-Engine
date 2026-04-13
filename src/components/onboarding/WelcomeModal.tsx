@@ -6,6 +6,7 @@ import api from "../../lib/api";
 
 interface WelcomeModalProps {
   onComplete: () => void;
+  existingApiKey?: string | null;
 }
 
 const steps = [
@@ -31,9 +32,9 @@ const steps = [
   },
 ];
 
-export default function WelcomeModal({ onComplete }: WelcomeModalProps) {
+export default function WelcomeModal({ onComplete, existingApiKey }: WelcomeModalProps) {
   const [currentStep, setCurrentStep] = useState(0);
-  const [apiKey, setApiKey] = useState<string | null>(null);
+  const [apiKey, setApiKey] = useState<string | null>(existingApiKey || null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -43,7 +44,13 @@ export default function WelcomeModal({ onComplete }: WelcomeModalProps) {
 
   const handleNext = async () => {
     if (currentStep === 1 && !apiKey) {
-      // Generate API key
+      // Only rotate if user doesn't already have a key
+      if (existingApiKey) {
+        setApiKey(existingApiKey);
+        return;
+      }
+
+      // Generate API key — ONLY on explicit user click
       setIsGenerating(true);
       try {
         const { data: sessionData } = await supabase.auth.getSession();
