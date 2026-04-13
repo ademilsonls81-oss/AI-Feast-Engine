@@ -8,6 +8,7 @@ export interface UserProfile {
   rate_limit: number;
   role: 'user' | 'admin';
   created_at: string;
+  onboarding_done?: boolean;
 }
 
 export interface FeedSource {

@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 
+'use strict';
+
+const { Command } = require('commander');
+const ora = require('ora');
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
@@ -10,21 +14,9 @@ const API_BASE = 'https://api.aifeastengine.com';
 const CONFIG_DIR = path.join(os.homedir(), '.aifeast');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 
-// Cores para terminal
-const colors = {
-  reset: '\x1b[0m',
-  bold: '\x1b[1m',
-  cyan: '\x1b[36m',
-  green: '\x1b[32m',
-  yellow: '\x1b[33m',
-  red: '\x1b[31m',
-  gray: '\x1b[90m',
-  purple: '\x1b[35m'
-};
-
-function log(msg, color = 'reset') {
-  console.log(`${colors[color]}${msg}${colors.reset}`);
-}
+// ============================================
+// CORE UTILS
+// ============================================
 
 function getConfig() {
   try {
@@ -40,341 +32,364 @@ function saveConfig(config) {
     fs.mkdirSync(CONFIG_DIR, { recursive: true });
   }
   fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
-  // Proteger arquivo: apenas dono pode ler/escrever (0600)
   try { fs.chmodSync(CONFIG_FILE, 0o600); } catch {}
 }
 
-function parseArgs(argv) {
-  const args = argv.slice(2);
-  const cmd = args[0];
-  const flags = {};
-  let positional = [];
-
-  for (let i = 1; i < args.length; i++) {
-    if (args[i].startsWith('--')) {
-      const key = args[i].replace('--', '');
-      const val = args[i + 1] && !args[i + 1].startsWith('--') ? args[++i] : true;
-      flags[key] = val;
-    } else {
-      positional.push(args[i]);
-    }
+function output(data, jsonFlag) {
+  if (jsonFlag) {
+    console.log(JSON.stringify(data, null, 2));
   }
+}
 
-  const slug = positional[0] || null;
-  return { cmd, slug, flags, args, positional };
+function formatError(err) {
+  if (err.response) {
+    const status = err.response.status;
+    const data = err.response.data;
+    if (status === 401) return 'API Key inválida ou ausente.';
+    if (status === 402) return `Limite mensal atingido. Plano: ${data.plan || 'N/A'} | Uso: ${data.usage_count || '?'}/${data.limit || '?'}`;
+    if (status === 404) return `Recurso não encontrado.`;
+    return `Erro ${status}: ${data.error || err.message}`;
+  }
+  return err.message;
 }
 
 // ============================================
-// COMANDOS
+// COMMAND ACTIONS
 // ============================================
 
-async function cmdList() {
-  log('\n🔍 Buscando skills disponíveis...\n', 'cyan');
+async function cmdList(opts) {
+  const spinner = opts.json ? { start:()=>{}, succeed:()=>{}, fail:()=>{} } : ora('Fetching skills...').start();
   try {
     const res = await axios.get(`${API_BASE}/api/skills`);
     const { skills, total } = res.data;
+    spinner.succeed(`Fetched ${total || (skills ? skills.length : 0)} skills`);
 
-    if (!skills || skills.length === 0) {
-      log('Nenhuma skill disponível no momento.', 'yellow');
+    if (opts.json) {
+      output(skills || [], true);
       return;
     }
 
-    log(`📦 Skills disponíveis (${total}):\n`, 'bold');
+    if (!skills || skills.length === 0) {
+      console.log('  Nenhuma skill disponível no momento.');
+      return;
+    }
 
     skills.forEach((skill, i) => {
-      const riskColor = skill.risk_level === 'low' ? 'green' : skill.risk_level === 'medium' ? 'yellow' : 'red';
-      log(`  ${i + 1}. ${colors.bold}${skill.name}${colors.reset}`, 'cyan');
-      log(`     Slug: ${colors.cyan}${skill.slug}${colors.reset}`);
-      log(`     ${skill.description || 'Sem descrição'}`, 'gray');
-      log(`     Categoria: ${skill.category} | Risco: ${colors[riskColor]}${skill.risk_level}${colors.reset}`, 'gray');
-      log(`     Instalar: ${colors.green}npx aifeast info ${skill.slug}${colors.reset}`, 'gray');
-      log('');
+      const riskColor = skill.risk_level === 'low' ? '\x1b[32m' : skill.risk_level === 'medium' ? '\x1b[33m' : '\x1b[31m';
+      const badge = skill.verified ? ' \x1b[32m[AI Verified]\x1b[0m' : skill.source === 'github' ? ' \x1b[36m[Community]\x1b[0m' : '';
+      console.log(`  \x1b[1m${i + 1}. ${skill.name}\x1b[0m${badge}`);
+      console.log(`     Slug: \x1b[36m${skill.slug}\x1b[0m`);
+      console.log(`     ${skill.description || 'Sem descrição'}`);
+      console.log(`     Categoria: ${skill.category} | Risco: ${riskColor}${skill.risk_level}\x1b[0m`);
+      console.log('');
     });
   } catch (err) {
-    log(`❌ Erro ao buscar skills: ${err.message}`, 'red');
-    process.exit(1);
+    spinner.fail(`Error: ${formatError(err)}`);
+    process.exitCode = 1;
   }
 }
 
-async function cmdInfo(slug) {
+async function cmdInfo(slug, opts) {
   if (!slug) {
-    log('❌ Uso: npx aifeast info <skill-slug>', 'red');
-    process.exit(1);
+    console.error('\x1b[31m❌ Uso: aifeast info <skill-slug>\x1b[0m');
+    process.exitCode = 1;
+    return;
   }
 
-  log(`\n🔍 Buscando informações da skill: ${colors.bold}${slug}\n`, 'cyan');
+  const spinner = opts.json ? { start:()=>{}, succeed:()=>{}, fail:()=>{} } : ora(`Loading skill "${slug}"...`).start();
   try {
     const res = await axios.get(`${API_BASE}/api/skills/${slug}`);
     const skill = res.data;
+    spinner.succeed(`Skill loaded: ${skill.name}`);
 
-    log(`  ${colors.bold}${colors.cyan}Nome:${colors.reset} ${skill.name}`, 'reset');
-    log(`  ${colors.bold}Slug:${colors.reset} ${skill.slug}`);
-    log(`  ${colors.bold}Descrição:${colors.reset} ${skill.description}`, 'gray');
-    log(`  ${colors.bold}Detalhes:${colors.reset} ${skill.long_description}`, 'gray');
-    log(`  ${colors.bold}Categoria:${colors.reset} ${skill.category}`);
-    log(`  ${colors.bold}Tags:${colors.reset} ${(skill.tags || []).join(', ')}`);
-    log(`  ${colors.bold}Risco:${colors.reset} ${skill.risk_level}`);
-    log(`  ${colors.bold}Downloads:${colors.reset} ${skill.downloads || 0}`);
-    log(`  ${colors.bold}Instalar:${colors.reset} ${colors.green}npx aifeast ${skill.install_command}${colors.reset}`);
-    log(`  ${colors.bold}Executar:${colors.reset} ${colors.green}npx aifeast run ${skill.slug} --input "seu texto"${colors.reset}`);
-    log('');
-  } catch (err) {
-    if (err.response && err.response.status === 404) {
-      log(`❌ Skill "${slug}" não encontrada.`, 'red');
-    } else {
-      log(`❌ Erro: ${err.message}`, 'red');
+    if (opts.json) {
+      output(skill, true);
+      return;
     }
-    process.exit(1);
+
+    console.log(`  \x1b[1m\x1b[36mNome:\x1b[0m ${skill.name}`);
+    console.log(`  \x1b[1mSlug:\x1b[0m ${skill.slug}`);
+    console.log(`  \x1b[1mDescrição:\x1b[0m ${skill.description}`);
+    console.log(`  \x1b[1mDetalhes:\x1b[0m ${skill.long_description || 'N/A'}`);
+    console.log(`  \x1b[1mCategoria:\x1b[0m ${skill.category}`);
+    console.log(`  \x1b[1mTags:\x1b[0m ${(skill.tags || []).join(', ') || 'N/A'}`);
+    console.log(`  \x1b[1mRisco:\x1b[0m ${skill.risk_level}`);
+    console.log(`  \x1b[1mDownloads:\x1b[0m ${skill.downloads || 0}`);
+    console.log(`  \x1b[1mInstalar:\x1b[0m \x1b[32m${skill.install_command || `npx aifeast ${skill.slug}`}\x1b[0m`);
+    console.log(`  \x1b[1mExecutar:\x1b[0m \x1b[32m${skill.run_command || `npx aifeast run ${skill.slug} --input "seu texto"`}\x1b[0m`);
+    console.log('');
+  } catch (err) {
+    spinner.fail(`Error: ${formatError(err)}`);
+    process.exitCode = 1;
   }
 }
 
-async function cmdRun(slug, flags) {
+async function cmdRun(slug, opts) {
   if (!slug) {
-    log('❌ Uso: npx aifeast run <skill-slug> --input "texto aqui"', 'red');
-    process.exit(1);
+    console.error('\x1b[31m❌ Uso: aifeast run <skill-slug> --input "texto"\x1b[0m');
+    process.exitCode = 1;
+    return;
   }
 
   const config = getConfig();
   if (!config.apiKey) {
-    log('❌ API Key não configurada.', 'red');
-    log('   Execute: npx aifeast config --key SUA_API_KEY', 'yellow');
-    process.exit(1);
+    console.error('\x1b[31m❌ API Key não configurada.\x1b[0m');
+    console.error('   Execute: aifeast config --key SUA_API_KEY');
+    process.exitCode = 1;
+    return;
   }
 
-  const input = flags.input || flags.i || flags.data;
+  const input = opts.input || opts.i || opts.data;
   if (!input) {
-    log('❌ Input não fornecido.', 'red');
-    log('   Uso: npx aifeast run ' + slug + ' --input "seu texto aqui"', 'yellow');
-    process.exit(1);
+    console.error('\x1b[31m❌ Input não fornecido.\x1b[0m');
+    console.error(`   Uso: aifeast run ${slug} --input "seu texto aqui"`);
+    process.exitCode = 1;
+    return;
   }
 
-  log(`\n🚀 Executando skill: ${colors.bold}${slug}\n`, 'cyan');
+  const spinner = opts.json ? { start:()=>{}, succeed:()=>{}, fail:()=>{} } : ora(`Running skill "${slug}"...`).start();
+  const startTime = Date.now();
   try {
     const res = await axios.post(
       `${API_BASE}/api/skills/${slug}/execute`,
       { input },
-      {
-        headers: {
-          'X-API-Key': config.apiKey,
-          'Content-Type': 'application/json'
-        }
-      }
+      { headers: { 'X-API-Key': config.apiKey, 'Content-Type': 'application/json' } }
     );
-
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
     const result = res.data;
 
     if (result.status === 'executed' || result.skill_id) {
-      log(`  ${colors.bold}${colors.green}✅ Skill executada com sucesso!${colors.reset}`, 'green');
-      log(`  ${colors.bold}Skill:${colors.reset} ${result.skill_name || slug}`);
-      log(`  ${colors.bold}Nível de risco:${colors.reset} ${result.risk_level || 'N/A'}`);
-      log(`  ${colors.bold}Requests restantes:${colors.reset} ${result.usage_remaining || 'N/A'}`);
-      log('');
+      spinner.succeed(`Skill executed in ${elapsed}s`);
 
-      if (result.message) {
-        log(`  ${colors.bold}Mensagem:${colors.reset} ${result.message}`, 'gray');
+      if (opts.json) {
+        output(result, true);
+        return;
       }
-      if (result.input_received) {
-        log(`  ${colors.bold}Input recebido:${colors.reset} ${result.input_received}`, 'gray');
-      }
-      log('');
+
+      console.log(`  \x1b[1mSkill:\x1b[0m ${result.skill_name || slug}`);
+      console.log(`  \x1b[1mNível de risco:\x1b[0m ${result.risk_level || 'N/A'}`);
+      console.log(`  \x1b[1mRequests restantes:\x1b[0m ${result.usage_remaining || 'N/A'}`);
+      if (result.message) console.log(`  \x1b[1mMensagem:\x1b[0m ${result.message}`);
+      if (result.input_received) console.log(`  \x1b[1mInput recebido:\x1b[0m ${result.input_received}`);
+      console.log('');
     } else {
-      log(`  ${colors.yellow}Resposta:${colors.reset}`, 'yellow');
-      log(JSON.stringify(result, null, 2));
+      spinner.succeed(`Completed in ${elapsed}s`);
+      if (opts.json) {
+        output(result, true);
+      } else {
+        console.log(`  \x1b[33mResposta:\x1b[0m`);
+        console.log(JSON.stringify(result, null, 2));
+      }
     }
   } catch (err) {
-    if (err.response) {
-      const status = err.response.status;
-      const data = err.response.data;
-
-      if (status === 401) {
-        log('❌ API Key inválida ou ausente.', 'red');
-      } else if (status === 402) {
-        log('❌ Limite mensal de requests atingido!', 'red');
-        log(`   Plano: ${data.plan} | Uso: ${data.usage_count}/${data.limit}`, 'yellow');
-        log('   Faça upgrade para Pro ou aguarde o próximo mês.', 'yellow');
-      } else if (status === 404) {
-        log(`❌ Skill "${slug}" não encontrada.`, 'red');
-      } else {
-        log(`❌ Erro (${status}): ${data.error || err.message}`, 'red');
-      }
-    } else {
-      log(`❌ Erro: ${err.message}`, 'red');
-    }
-    process.exit(1);
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
+    spinner.fail(`Error after ${elapsed}s: ${formatError(err)}`);
+    process.exitCode = 1;
   }
 }
 
-async function cmdConfig(flags) {
-  const key = flags.key || flags.k;
+async function cmdConfig(opts) {
+  const key = opts.key || opts.k;
   if (!key) {
-    log('❌ Uso: npx aifeast config --key SUA_API_KEY', 'red');
-    process.exit(1);
+    console.error('\x1b[31m❌ Uso: aifeast config --key SUA_API_KEY\x1b[0m');
+    process.exitCode = 1;
+    return;
   }
 
+  const spinner = opts.json ? { start:()=>{}, succeed:()=>{}, fail:()=>{} } : ora('Saving API key...').start();
   const config = getConfig();
   config.apiKey = key;
   saveConfig(config);
+  spinner.succeed(`API key saved to ${CONFIG_FILE}`);
 
-  log(`\n✅ API Key salva com sucesso em: ${CONFIG_FILE}`, 'green');
-  log(`   Chave: ${key.substring(0, 8)}...${key.substring(key.length - 4)}`, 'gray');
-  log('');
+  if (opts.json) {
+    output({ status: 'ok', path: CONFIG_FILE, key: `${key.substring(0, 8)}...${key.substring(key.length - 4)}` }, true);
+  } else {
+    console.log(`   Chave: ${key.substring(0, 8)}...${key.substring(key.length - 4)}`);
+  }
 }
 
-async function cmdSearch(query) {
+async function cmdSearch(query, opts) {
   if (!query) {
-    log('❌ Uso: npx aifeast search "termo de busca"', 'red');
-    process.exit(1);
+    console.error('\x1b[31m❌ Uso: aifeast search "termo"\x1b[0m');
+    process.exitCode = 1;
+    return;
   }
 
-  log(`\n🔍 Buscando skills: ${colors.bold}${query}\n`, 'cyan');
+  const spinner = opts.json ? { start:()=>{}, succeed:()=>{}, fail:()=>{} } : ora(`Searching skills for "${query}"...`).start();
   try {
     const res = await axios.get(`${API_BASE}/api/skills/search`, { params: { q: query } });
     const { skills, total } = res.data;
+    spinner.succeed(`Found ${total || (skills ? skills.length : 0)} results`);
 
-    if (!skills || skills.length === 0) {
-      log('Nenhuma skill encontrada.', 'yellow');
+    if (opts.json) {
+      output(skills || [], true);
       return;
     }
 
-    log(`📦 Resultados (${total}):\n`, 'bold');
+    if (!skills || skills.length === 0) {
+      console.log('  Nenhuma skill encontrada.');
+      return;
+    }
 
     skills.slice(0, 10).forEach((skill, i) => {
-      const riskColor = skill.risk_level === 'low' ? 'green' : skill.risk_level === 'medium' ? 'yellow' : 'red';
-      const badge = skill.verified ? ` ${colors.green}[AI Verified]${colors.reset}` : skill.source === 'github' ? ` ${colors.cyan}[Community]${colors.reset}` : '';
-      log(`  ${i + 1}. ${colors.bold}${skill.name}${colors.reset}${badge}`, 'cyan');
-      log(`     Slug: ${colors.cyan}${skill.slug}${colors.reset}`);
-      log(`     ${skill.description || 'Sem descrição'}`, 'gray');
-      log(`     Categoria: ${skill.category} | Risco: ${colors[riskColor]}${skill.risk_level}${colors.reset}`, 'gray');
-      log('');
+      const riskColor = skill.risk_level === 'low' ? '\x1b[32m' : skill.risk_level === 'medium' ? '\x1b[33m' : '\x1b[31m';
+      const badge = skill.verified ? ' \x1b[32m[AI Verified]\x1b[0m' : skill.source === 'github' ? ' \x1b[36m[Community]\x1b[0m' : '';
+      console.log(`  \x1b[1m${i + 1}. ${skill.name}\x1b[0m${badge}`);
+      console.log(`     Slug: \x1b[36m${skill.slug}\x1b[0m`);
+      console.log(`     ${skill.description || 'Sem descrição'}`);
+      console.log(`     Categoria: ${skill.category} | Risco: ${riskColor}${skill.risk_level}\x1b[0m`);
+      console.log('');
     });
   } catch (err) {
-    log(`❌ Erro ao buscar skills: ${err.message}`, 'red');
-    process.exit(1);
+    spinner.fail(`Error: ${formatError(err)}`);
+    process.exitCode = 1;
   }
 }
 
-async function cmdExecuteBySlug(slug) {
+async function cmdExecuteBySlug(slug, opts) {
   if (!slug) return false;
 
   const config = getConfig();
   if (!config.apiKey) {
-    log('❌ API Key não configurada.', 'red');
-    log('   Execute: npx aifeast config --key SUA_API_KEY', 'yellow');
-    process.exit(1);
+    console.error('\x1b[31m❌ API Key não configurada.\x1b[0m');
+    console.error('   Execute: aifeast config --key SUA_API_KEY');
+    process.exitCode = 1;
+    return true; // consumed
   }
 
+  const spinner = opts.json ? { start:()=>{}, succeed:()=>{}, fail:()=>{} } : ora(`Looking up skill "${slug}"...`).start();
   try {
     const res = await axios.get(`${API_BASE}/api/skills/${slug}`);
     const skill = res.data;
+    spinner.succeed(`Found: ${skill.name}`);
 
-    log(`\n🔍 Skill encontrada: ${colors.bold}${skill.name}${colors.reset}`, 'cyan');
-    log(`   ${skill.description}`, 'gray');
-    log(`   Risco: ${skill.risk_level} | Downloads: ${skill.downloads || 0}`, 'gray');
-
-    // Executar diretamente
-    log(`\n🚀 Executando skill: ${colors.bold}${slug}\n`, 'cyan');
+    const runSpinner = opts.json ? { start:()=>{}, succeed:()=>{}, fail:()=>{} } : ora(`Executing "${slug}"...`).start();
+    const startTime = Date.now();
     const execRes = await axios.post(
       `${API_BASE}/api/skills/${slug}/execute`,
       {},
       { headers: { 'X-API-Key': config.apiKey, 'Content-Type': 'application/json' } }
     );
-
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
     const result = execRes.data;
+
     if (result.status === 'executed' || result.skill_id) {
-      log(`  ${colors.bold}${colors.green}✅ Skill executada com sucesso!${colors.reset}`, 'green');
-      log(`  ${colors.bold}Skill:${colors.reset} ${result.skill_name || slug}`);
-      log(`  ${colors.bold}Requests restantes:${colors.reset} ${result.usage_remaining || 'N/A'}`, 'gray');
-      if (result.message) log(`  ${colors.bold}Mensagem:${colors.reset} ${result.message}`, 'gray');
-      log('');
+      runSpinner.succeed(`Executed in ${elapsed}s`);
+
+      if (opts.json) {
+        output(result, true);
+      } else {
+        console.log(`  \x1b[1mSkill:\x1b[0m ${result.skill_name || slug}`);
+        console.log(`  \x1b[1mRequests restantes:\x1b[0m ${result.usage_remaining || 'N/A'}`);
+        if (result.message) console.log(`  \x1b[1mMensagem:\x1b[0m ${result.message}`);
+        console.log('');
+      }
     } else {
-      log(`  ${colors.yellow}Resposta:${colors.reset}`, 'yellow');
-      log(JSON.stringify(result, null, 2));
+      runSpinner.succeed(`Completed in ${elapsed}s`);
+      if (opts.json) output(result, true);
     }
     return true;
   } catch (err) {
     if (err.response && err.response.status === 404) {
-      return false; // Skill não encontrada — tratar como comando inválido
+      spinner.stop();
+      return false; // not found — let commander handle unknown command
     }
-    log(`❌ Erro: ${err.message}`, 'red');
-    process.exit(1);
+    spinner.fail(`Error: ${formatError(err)}`);
+    process.exitCode = 1;
+    return true; // consumed
   }
 }
 
 // ============================================
-// HELP
+// COMMANDER SETUP
 // ============================================
 
-function showHelp() {
-  log(`\n${colors.bold}🍽️  AI Feast Engine CLI${colors.reset}\n`);
-  log('Comandos disponíveis:\n', 'bold');
-  log('  list                          Lista todas as skills disponíveis', 'cyan');
-  log('  info <skill-slug>             Mostra detalhes de uma skill', 'cyan');
-  log('  run <skill-slug> --input ""   Executa uma skill com input', 'cyan');
-  log('  search "termo"                Busca skills por nome ou descrição', 'cyan');
-  log('  config --key API_KEY          Configura sua API Key', 'cyan');
-  log('  <skill-slug>                  Executa skill diretamente (atalho)', 'cyan');
-  log('  help                          Mostra esta ajuda', 'cyan');
-  log('\nExemplos:\n', 'bold');
-  log('  npx aifeast list', 'gray');
-  log('  npx aifeast info summarize-article', 'gray');
-  log('  npx aifeast run summarize-article --input "https://example.com/artigo"', 'gray');
-  log('  npx aifeast search "json"', 'gray');
-  log('  npx aifeast json-validator', 'gray');
-  log('  npx aifeast config --key af_xxxxxxxxxxxxx', 'gray');
-  log('');
-}
+const program = new Command();
+
+program
+  .name('aifeast')
+  .description('🍽️  AI Feast Engine CLI — discover, configure, and run AI skills from your terminal')
+  .version(pkg.version, '-v, --version', 'show CLI version')
+  .addHelpText('after', `
+Examples:
+  $ aifeast list
+  $ aifeast info summarize-article
+  $ aifeast run summarize-article --input "https://example.com/article"
+  $ aifeast search "json"
+  $ aifeast config --key af_xxxxxxxxxxxxx
+  $ aifeast json-validator              # shortcut: run skill directly
+  $ aifeast list --json | jq '.[].slug' # pipe JSON output
+
+Documentation:  https://www.aifeastengine.com
+Report issues:  https://github.com/ademilsonls81-oss/AI-Feast-Engine
+`)
+  .showHelpAfterError();
+
+// ── list ──────────────────────────────────
+program
+  .command('list')
+  .description('List all available AI skills')
+  .option('--json', 'Output as JSON for piping')
+  .action(cmdList);
+
+// ── info ──────────────────────────────────
+program
+  .command('info <slug>')
+  .description('Show detailed information about a skill')
+  .option('--json', 'Output as JSON for piping')
+  .action(cmdInfo);
+
+// ── run ───────────────────────────────────
+program
+  .command('run <slug>')
+  .description('Execute an AI skill with input')
+  .requiredOption('--input <text>', 'Input text or URL for the skill')
+  .option('-i <text>', 'Shorthand for --input')
+  .option('--data <text>', 'Alternative input flag')
+  .option('--json', 'Output as JSON for piping')
+  .action(cmdRun);
+
+// ── search ────────────────────────────────
+program
+  .command('search <query>')
+  .description('Search skills by name, description, or tags')
+  .option('--json', 'Output as JSON for piping')
+  .action(cmdSearch);
+
+// ── config ────────────────────────────────
+program
+  .command('config')
+  .description('Configure your API key')
+  .requiredOption('--key <value>', 'Your AI Feast Engine API key')
+  .option('-k <value>', 'Shorthand for --key')
+  .option('--json', 'Output as JSON for piping')
+  .action(cmdConfig);
+
+// ── Unknown command fallback ──────────────
+program
+  .command('*', { hidden: true, isDefault: true })
+  .allowUnknownOption()
+  .argument('[args...]', 'Unknown command arguments')
+  .action(async (args) => {
+    const slug = args[0];
+    if (!slug) {
+      console.error(`\x1b[31m❌ Unknown command.\x1b[0m`);
+      console.error('   Run \x1b[36maifeast --help\x1b[0m for available commands.');
+      process.exitCode = 1;
+      return;
+    }
+    // Try as skill slug
+    const found = await cmdExecuteBySlug(slug, {});
+    if (!found) {
+      console.error(`\x1b[31m❌ Unknown command: ${slug}\x1b[0m`);
+      console.error('   Run \x1b[36maifeast --help\x1b[0m for available commands.');
+      process.exitCode = 1;
+    }
+  });
 
 // ============================================
-// MAIN
+// GO
 // ============================================
 
-async function main() {
-  const { cmd, slug, flags } = parseArgs(process.argv);
-
-  switch (cmd) {
-    case 'list':
-      await cmdList();
-      break;
-    case 'info':
-      await cmdInfo(slug);
-      break;
-    case 'run':
-      await cmdRun(slug, flags);
-      break;
-    case 'search':
-      await cmdSearch(slug || flags.q);
-      break;
-    case 'config':
-      await cmdConfig(flags);
-      break;
-    case 'help':
-    case '--help':
-    case '-h':
-      showHelp();
-      break;
-    case '--version':
-    case '-v':
-      log(`${pkg.version}`, 'bold');
-      break;
-    case 'version':
-      log(`${pkg.name} v${pkg.version}`, 'bold');
-      break;
-    default:
-      if (cmd) {
-        // Tentar como slug de skill
-        const found = await cmdExecuteBySlug(cmd);
-        if (!found) {
-          log(`❌ Comando desconhecido: ${cmd}`, 'red');
-          log('   Execute: npx aifeast help\n', 'yellow');
-        }
-      } else {
-        showHelp();
-      }
-      process.exit(1);
-  }
-}
-
-main().catch(err => {
-  log(`❌ Erro inesperado: ${err.message}`, 'red');
-  process.exit(1);
-});
+program.parse(process.argv);

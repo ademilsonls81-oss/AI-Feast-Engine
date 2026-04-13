@@ -2,8 +2,10 @@ import React, { useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { supabase } from "../lib/supabaseClient";
 import { Post } from "../types";
-import { Globe, Clock, ChevronRight, Search, Filter } from "lucide-react";
+import { Globe, Clock, ChevronRight, Search } from "lucide-react";
 import ReactMarkdown from "react-markdown";
+import { Badge, SkeletonGrid, EmptyState } from "../components/ui";
+import { OnboardingTooltip } from "../components/onboarding";
 
 export default function PublicFeed() {
   const [posts, setPosts] = useState<Post[]>([]);
@@ -60,8 +62,8 @@ export default function PublicFeed() {
           animate={{ opacity: 1, y: 0 }}
           className="pt-16 pb-12 text-center"
         >
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-neon-purple/10 border border-neon-purple/20 text-neon-purple text-xs font-bold mb-6">
-            <Globe className="w-3 h-3" /> LIVE AI FEED
+          <div className="mb-6 flex justify-center">
+            <Badge variant="live"><Globe className="w-3 h-3" /> LIVE AI FEED</Badge>
           </div>
           <h1 className="text-4xl md:text-6xl font-display font-bold mb-6">
             Global Knowledge, <span className="text-transparent bg-clip-text bg-gradient-to-r from-neon-purple to-neon-cyan text-glow-purple">Distilled</span>
@@ -102,9 +104,7 @@ export default function PublicFeed() {
 
         {/* Feed Grid */}
         {loading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            {[1, 2, 4, 5].map(i => <div key={i} className="h-64 bg-white/5 animate-pulse rounded-3xl" />)}
-          </div>
+          <SkeletonGrid count={4} height="h-64" />
         ) : filteredPosts.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             {filteredPosts.map((post, idx) => (
@@ -117,9 +117,7 @@ export default function PublicFeed() {
               >
                 <div className="p-8 flex flex-col h-full">
                   <div className="flex items-center justify-between mb-4">
-                    <span className="px-3 py-1 bg-white/5 border border-white/10 rounded-full text-[10px] font-bold text-gray-400 uppercase tracking-widest">
-                      {post.category}
-                    </span>
+                    <Badge variant="category" label={post.category} />
                     <div className="flex items-center gap-1.5 text-xs text-gray-500">
                       <Clock className="w-3 h-3" />
                       {new Date(post.pub_date).toLocaleDateString()}
@@ -160,7 +158,11 @@ export default function PublicFeed() {
             ))}
           </div>
         ) : (
-          <div className="text-center py-20 text-gray-500">No matching insights found.</div>
+          <EmptyState
+            context="feed"
+            onAction={() => window.location.href = '/skills'}
+            ctaLabel="View available skills"
+          />
         )}
       </div>
     </div>

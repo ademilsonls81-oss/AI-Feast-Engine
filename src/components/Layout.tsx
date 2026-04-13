@@ -4,6 +4,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { signInWithGoogle } from "../lib/supabaseClient";
 import { motion } from "motion/react";
 import { LayoutDashboard, BookOpen, Shield, LogOut, Globe, Zap, User, Puzzle } from "lucide-react";
+import { Button } from "./ui";
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const { user, profile, loading, signOut } = useAuth();
@@ -94,12 +95,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 </div>
               </div>
             ) : (
-              <button
-                onClick={signInWithGoogle}
-                className="px-6 py-2.5 bg-white text-black text-xs font-bold rounded-full hover:bg-gray-200 transition-all active:scale-95"
-              >
+              <Button variant="primary" size="sm" onClick={signInWithGoogle} className="!rounded-full !bg-white !text-black hover:!bg-gray-200">
                 Sign In
-              </button>
+              </Button>
             )}
           </div>
         </div>

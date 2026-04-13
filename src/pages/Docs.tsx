@@ -2,6 +2,7 @@ import React from "react";
 import { motion } from "motion/react";
 import { Copy, Terminal, Globe, Key, AlertCircle, CheckCircle2, ChevronRight } from "lucide-react";
 import { cn } from "../lib/utils";
+import { Badge, Card } from "../components/ui";
 
 const DOCS_ENABLED = true;
 
@@ -88,7 +89,7 @@ export default function Docs() {
 
               <div className="space-y-6">
                 <div className="flex items-center gap-4">
-                  <span className="px-3 py-1 bg-green-500/20 text-green-400 text-[10px] font-bold rounded uppercase">GET</span>
+                  <Badge variant="http-get" />
                   <code className="text-sm font-mono text-gray-300">/feed</code>
                 </div>
                 

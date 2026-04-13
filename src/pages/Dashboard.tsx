@@ -6,6 +6,8 @@ import { Key, BarChart3, History, Copy, Check, Zap, AlertCircle, RefreshCw, Laye
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import api from "../lib/api";
 import { Post, AppStats } from "../types";
+import { StatusBadge, EmptyState, Button, Card, Spinner } from "../components/ui";
+import { WelcomeModal, FirstRunBanner } from "../components/onboarding";
 
 export default function Dashboard() {
   const { user, profile, loading, refreshProfile } = useAuth();
@@ -16,14 +18,21 @@ export default function Dashboard() {
   const [isRotating, setIsRotating] = useState(false);
   const [isUpgrading, setIsUpgrading] = useState(false);
   const [showKey, setShowKey] = useState(false);
+  const [showWelcome, setShowWelcome] = useState(false);
+  const [dismissedFirstRun, setDismissedFirstRun] = useState(false);
 
   useEffect(() => {
     if (user) {
       fetchLogs(user.id);
       fetchPosts();
       fetchStats();
+
+      // Check if onboarding is needed
+      if (!profile?.onboarding_done) {
+        setShowWelcome(true);
+      }
     }
-  }, [user]);
+  }, [user, profile]);
 
   async function fetchLogs(userId: string) {
     const { data, error } = await supabase
@@ -148,7 +157,12 @@ export default function Dashboard() {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  if (loading) return <div className="flex items-center justify-center h-screen text-neon-purple animate-pulse">Loading engine...</div>;
+  if (loading) return (
+    <div className="flex items-center justify-center h-screen text-neon-purple animate-pulse">
+      <Spinner size="lg" />
+      <span className="ml-3">Loading engine...</span>
+    </div>
+  );
   
   if (!user) return (
     <div className="flex flex-col items-center justify-center h-[70vh] text-center px-4">
@@ -165,6 +179,24 @@ export default function Dashboard() {
 
   return (
     <div className="container mx-auto px-4 py-12">
+      {/* Welcome Modal — shown once for new users */}
+      {showWelcome && (
+        <WelcomeModal
+          onComplete={() => {
+            setShowWelcome(false);
+            refreshProfile();
+          }}
+        />
+      )}
+
+      {/* First Run Banner — shown when user has no API usage */}
+      {!profile?.onboarding_done && !showWelcome && !dismissedFirstRun && (
+        <FirstRunBanner
+          onDismiss={() => setDismissedFirstRun(true)}
+          onNavigateToDocs={() => window.location.href = '/docs'}
+        />
+      )}
+
       {/* Header Info */}
       <div className="flex flex-col lg:flex-row items-start justify-between gap-8 mb-12">
         <motion.div initial={{ x: -20, opacity: 0 }} animate={{ x: 0, opacity: 1 }}>
@@ -278,16 +310,10 @@ export default function Dashboard() {
                       <div className="text-xs font-medium text-gray-200 truncate">{post.title}</div>
                       <div className="text-[10px] text-gray-500">{new Date(post.created_at).toLocaleTimeString()}</div>
                     </div>
-                    <div className={`px-2 py-0.5 rounded text-[8px] font-bold uppercase ${
-                      post.status === 'published' ? 'bg-green-500/10 text-green-400' :
-                      post.status === 'processing' ? 'bg-blue-500/10 text-blue-400 animate-pulse' :
-                      post.status === 'error' ? 'bg-red-500/10 text-red-400' : 'bg-gray-500/10 text-gray-500'
-                    }`}>
-                      {post.status}
-                    </div>
+                    <StatusBadge status={post.status} />
                   </div>
                 ))}
-                {posts.length === 0 && <div className="text-center py-6 text-xs text-gray-500">No recent processing jobs.</div>}
+                {posts.length === 0 && <EmptyState context="posts" />}
               </div>
             </motion.div>
 
@@ -308,13 +334,11 @@ export default function Dashboard() {
                   </div>
                 ))}
                 {logs.filter(l => !l.generated).length === 0 && (
-                  <div className="text-center py-8">
-                    <History className="w-10 h-10 text-gray-600 mx-auto mb-3 opacity-30" />
-                    <div className="text-xs text-gray-500 mb-2">No API calls recorded yet</div>
-                    <div className="text-[10px] text-gray-600">
-                      Use your API key to make requests and logs will appear here
-                    </div>
-                  </div>
+                  <EmptyState
+                    context="logs"
+                    onAction={() => window.open('/docs', '_blank')}
+                    ctaLabel="Make your first call"
+                  />
                 )}
               </div>
             </motion.div>
@@ -372,11 +396,11 @@ export default function Dashboard() {
                   </LineChart>
                 </ResponsiveContainer>
               ) : (
-                <div className="flex flex-col items-center justify-center h-full text-xs text-gray-600">
-                  <BarChart3 className="w-12 h-12 mb-2 opacity-20" />
-                  <div className="uppercase tracking-tighter mb-1">No usage data yet</div>
-                  <div className="text-[10px] text-gray-700">Make API requests to see metrics</div>
-                </div>
+                <EmptyState
+                  context="dashboard"
+                  onAction={() => window.open('/docs', '_blank')}
+                  ctaLabel="View API docs"
+                />
               )}
             </div>
           </motion.div>

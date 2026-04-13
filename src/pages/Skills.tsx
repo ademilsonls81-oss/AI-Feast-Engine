@@ -2,6 +2,14 @@ import React, { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Globe, Search, Download, ExternalLink, ChevronRight, X, Check, Shield, Terminal, ArrowRight, AlertTriangle, AlertCircle, Info } from "lucide-react";
 import api from "../lib/api";
+import {
+  Badge,
+  RiskBadge,
+  OriginBadge,
+  SkeletonGrid,
+  EmptyState,
+  Input,
+} from "../components/ui";
 
 interface Skill {
   id: string;
@@ -80,21 +88,12 @@ export default function Skills() {
 
   const filteredSkills = skills.filter(s => {
     const matchesCategory = filter === "All" || s.category === filter;
-    const matchesSearch = !search || 
+    const matchesSearch = !search ||
       s.name.toLowerCase().includes(search.toLowerCase()) ||
       s.description.toLowerCase().includes(search.toLowerCase()) ||
       (s.tags || []).some(t => t.toLowerCase().includes(search.toLowerCase()));
     return matchesCategory && matchesSearch;
   });
-
-  const riskColor = (risk: string) => {
-    switch (risk) {
-      case "low": return "text-green-400 bg-green-500/10 border-green-500/20";
-      case "medium": return "text-yellow-400 bg-yellow-500/10 border-yellow-500/20";
-      case "high": return "text-red-400 bg-red-500/10 border-red-500/20";
-      default: return "text-gray-400 bg-gray-500/10 border-gray-500/20";
-    }
-  };
 
   const categoryIcon = (cat: string) => {
     switch (cat) {
@@ -146,21 +145,26 @@ export default function Skills() {
           </div>
           {/* Origin Filter */}
           <div className="flex items-center gap-2 overflow-x-auto pb-2 md:pb-0 px-2 w-full md:w-auto">
-            {originFilters.map((of) => (
-              <button
-                key={of}
-                onClick={() => setOriginFilter(of)}
-                className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all whitespace-nowrap ${
-                  originFilter === of
-                    ? of === "AI Verified" ? "bg-green-500/20 text-green-400 border border-green-500/30"
-                      : of === "Community Imported" ? "bg-blue-500/20 text-blue-400 border border-blue-500/30"
-                      : "bg-neon-cyan/20 text-neon-cyan border border-neon-cyan/30"
-                    : "text-gray-500 hover:text-gray-300 hover:bg-white/5 border border-transparent"
-                }`}
-              >
-                {of === "AI Verified" && "🛡️ "}{of === "Community Imported" && "🌐 "}{of}
-              </button>
-            ))}
+            {originFilters.map((of) => {
+              const isActive = originFilter === of;
+              const variant: "ai-verified" | "community" | "tag" =
+                of === "AI Verified" ? "ai-verified" : of === "Community Imported" ? "community" : "tag";
+              return (
+                <button
+                  key={of}
+                  onClick={() => setOriginFilter(of)}
+                  className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all whitespace-nowrap border ${
+                    isActive
+                      ? of === "AI Verified" ? "bg-green-500/20 text-green-400 border-green-500/30"
+                        : of === "Community Imported" ? "bg-blue-500/20 text-blue-400 border-blue-500/30"
+                        : "bg-neon-cyan/20 text-neon-cyan border-neon-cyan/30"
+                      : "text-gray-500 hover:text-gray-300 hover:bg-white/5 border-transparent"
+                  }`}
+                >
+                  {of === "AI Verified" && "🛡️ "}{of === "Community Imported" && "🌐 "}{of}
+                </button>
+              );
+            })}
           </div>
           <div className="relative w-full md:w-64 px-2">
             <Search className="absolute left-5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
@@ -176,9 +180,7 @@ export default function Skills() {
 
         {/* Skills Grid */}
         {loading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {[1, 2, 3, 4, 5, 6].map(i => <div key={i} className="h-48 bg-white/5 animate-pulse rounded-3xl" />)}
-          </div>
+          <SkeletonGrid count={6} height="h-48" />
         ) : filteredSkills.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredSkills.map((skill, idx) => (
@@ -200,24 +202,7 @@ export default function Skills() {
                     </div>
                   </div>
                   <div className="flex items-center gap-1">
-                    {/* AI Verified Badge — destacado */}
-                    {skill.verified && skill.source !== "github" && (
-                      <span className="px-2 py-0.5 rounded-full text-[8px] font-bold bg-green-500/20 text-green-400 border border-green-500/30 flex items-center gap-0.5" title="AI Verified">
-                        <Shield className="w-2.5 h-2.5" /> VERIFIED
-                      </span>
-                    )}
-                    {/* Community Imported Badge */}
-                    {skill.source === "github" && !skill.verified && (
-                      <span className="px-2 py-0.5 rounded-full text-[8px] font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30" title="Community Imported">
-                        🌐 COMMUNITY
-                      </span>
-                    )}
-                    {/* Verified GitHub skill */}
-                    {skill.verified && skill.source === "github" && (
-                      <span className="px-2 py-0.5 rounded-full text-[8px] font-bold bg-green-500/20 text-green-400 border border-green-500/30 flex items-center gap-0.5" title="AI Verified">
-                        <Shield className="w-2.5 h-2.5" /> VERIFIED
-                      </span>
-                    )}
+                    <OriginBadge verified={skill.verified} source={skill.source} />
                   </div>
                 </div>
 
@@ -227,15 +212,13 @@ export default function Skills() {
                 {/* Tags */}
                 <div className="flex flex-wrap gap-1 mb-4">
                   {(skill.tags || []).slice(0, 3).map(tag => (
-                    <span key={tag} className="px-2 py-0.5 bg-white/5 rounded text-[9px] text-gray-400">#{tag}</span>
+                    <Badge key={tag} variant="tag" label={`#${tag}`} />
                   ))}
                 </div>
 
                 {/* Footer */}
                 <div className="flex items-center justify-between pt-4 border-t border-white/5">
-                  <span className={`px-2 py-0.5 rounded text-[9px] font-bold border ${riskColor(skill.risk_level)}`}>
-                    {skill.risk_level}
-                  </span>
+                  <RiskBadge level={skill.risk_level} />
                   <div className="flex items-center gap-3 text-[10px] text-gray-500">
                     <span className="flex items-center gap-1"><Download className="w-3 h-3" />{skill.downloads || 0}</span>
                     <ChevronRight className="w-3 h-3 text-neon-cyan group-hover:translate-x-1 transition-transform" />
@@ -245,7 +228,11 @@ export default function Skills() {
             ))}
           </div>
         ) : (
-          <div className="text-center py-20 text-gray-500">No skills found matching your criteria.</div>
+          <EmptyState
+            context="skills"
+            onAction={() => setOriginFilter("All")}
+            ctaLabel="Explore skills"
+          />
         )}
 
         {/* Detail Modal */}
@@ -282,20 +269,11 @@ export default function Skills() {
                 <div className="p-6 space-y-6">
                   {/* Badges */}
                   <div className="flex flex-wrap gap-2">
-                    <span className={`px-3 py-1 rounded-full text-xs font-bold border ${riskColor(selectedSkill.risk_level)}`}>
-                      {selectedSkill.risk_level === "low" && <Shield className="w-3 h-3 inline mr-1" />}
-                      {selectedSkill.risk_level === "medium" && <AlertTriangle className="w-3 h-3 inline mr-1" />}
-                      {selectedSkill.risk_level === "high" && <AlertCircle className="w-3 h-3 inline mr-1" />}
-                      {selectedSkill.risk_level.toUpperCase()} RISK
-                    </span>
+                    <RiskBadge level={selectedSkill.risk_level} />
                     {selectedSkill.verified && (
-                      <span className="px-3 py-1 rounded-full text-xs font-bold bg-neon-cyan/10 border border-neon-cyan/20 text-neon-cyan">
-                        <Shield className="w-3 h-3 inline mr-1" /> VERIFIED
-                      </span>
+                      <Badge variant="ai-verified" />
                     )}
-                    <span className="px-3 py-1 rounded-full text-xs font-bold bg-white/5 border border-white/10 text-gray-400">
-                      {selectedSkill.category.toUpperCase()}
-                    </span>
+                    <Badge variant="category" label={selectedSkill.category.toUpperCase()} />
                   </div>
 
                   {/* Evaluation Score */}
@@ -324,7 +302,7 @@ export default function Skills() {
                     <h3 className="text-sm font-bold text-gray-300 mb-2">Tags</h3>
                     <div className="flex flex-wrap gap-2">
                       {(selectedSkill.tags || []).map(tag => (
-                        <span key={tag} className="px-3 py-1 bg-white/5 rounded-lg text-xs text-gray-400">#{tag}</span>
+                        <Badge key={tag} variant="tag" label={`#${tag}`} />
                       ))}
                     </div>
                   </div>

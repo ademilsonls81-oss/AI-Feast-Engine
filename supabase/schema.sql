@@ -17,6 +17,7 @@ CREATE TABLE public.users (
   usage_count INTEGER DEFAULT 0,
   rate_limit INTEGER DEFAULT 10,
   role TEXT DEFAULT 'user' CHECK (role IN ('user', 'admin')),
+  onboarding_done BOOLEAN DEFAULT false,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 

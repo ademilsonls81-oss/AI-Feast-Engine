@@ -2,6 +2,22 @@ import React, { useEffect, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { Database, Plus, Trash2, Activity, List, ShieldCheck, Sparkles, Power, Eye, EyeOff, Play, FileText, AlertCircle } from "lucide-react";
 import api from "../lib/api";
+import {
+  Badge,
+  OriginBadge,
+  StatusBadge,
+  EmptyState,
+  Input,
+  Textarea,
+  Select,
+  FormField,
+  Button,
+  Card,
+  CardCompact,
+  Spinner,
+  SkeletonGrid,
+} from "../components/ui";
+import { OnboardingTooltip } from "../components/onboarding";
 
 interface Skill {
   id: string;
@@ -48,6 +64,7 @@ export default function Admin() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
+  const [showAdminTooltip, setShowAdminTooltip] = useState(true);
 
   // Skills state
   const [skills, setSkills] = useState<Skill[]>([]);
@@ -314,6 +331,12 @@ export default function Admin() {
         Admin Control Center
       </h1>
 
+      <OnboardingTooltip
+        context="dashboard"
+        message="Manage feeds, generate skills with AI, and monitor import pipelines. All admin tools are below."
+        onDismiss={() => setShowAdminTooltip(false)}
+      />
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
         {/* Manage Feeds */}
         <div className="space-y-8">
@@ -322,33 +345,36 @@ export default function Admin() {
               <Plus className="w-5 h-5 text-neon-cyan" /> Add New Source
             </h2>
             <form onSubmit={handleAddFeed} className="space-y-4">
-              <input 
-                type="text" 
-                placeholder="Feed Name (e.g. TechCrunch)" 
-                className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-neon-purple outline-none transition-all"
-                value={newFeed.name}
-                onChange={e => setNewFeed({...newFeed, name: e.target.value})}
-                required
-              />
-              <input 
-                type="url" 
-                placeholder="RSS URL" 
-                className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-neon-purple outline-none transition-all"
-                value={newFeed.url}
-                onChange={e => setNewFeed({...newFeed, url: e.target.value})}
-                required
-              />
-              <select 
-                className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-neon-purple outline-none transition-all"
-                value={newFeed.category}
-                onChange={e => setNewFeed({...newFeed, category: e.target.value})}
-              >
-                <option>Tech</option>
-                <option>Finance</option>
-                <option>Science</option>
-                <option>Health</option>
-              </select>
-              <button className="w-full py-3 bg-neon-purple text-white rounded-xl font-bold neon-glow-purple">Add Source</button>
+              <FormField>
+                <Input
+                  type="text"
+                  placeholder="Feed Name (e.g. TechCrunch)"
+                  value={newFeed.name}
+                  onChange={e => setNewFeed({...newFeed, name: e.target.value})}
+                  required
+                />
+              </FormField>
+              <FormField>
+                <Input
+                  type="url"
+                  placeholder="RSS URL"
+                  value={newFeed.url}
+                  onChange={e => setNewFeed({...newFeed, url: e.target.value})}
+                  required
+                />
+              </FormField>
+              <FormField>
+                <Select
+                  value={newFeed.category}
+                  onChange={e => setNewFeed({...newFeed, category: e.target.value})}
+                >
+                  <option>Tech</option>
+                  <option>Finance</option>
+                  <option>Science</option>
+                  <option>Health</option>
+                </Select>
+              </FormField>
+              <Button variant="primary" className="w-full">Add Source</Button>
             </form>
           </div>
 
@@ -363,9 +389,7 @@ export default function Admin() {
                     <div className="font-bold text-sm">{feed.name}</div>
                     <div className="text-xs text-gray-500 truncate max-w-[200px]">{feed.url}</div>
                   </div>
-                  <div className="px-2 py-1 bg-neon-purple/20 text-neon-purple text-[10px] rounded uppercase font-bold">
-                    {feed.category}
-                  </div>
+                  <Badge variant="category" label={feed.category} />
                 </div>
               ))}
             </div>
@@ -382,20 +406,20 @@ export default function Admin() {
 
             {/* Generate Skill Form */}
             <div className="space-y-4 mb-8">
-              <textarea
+              <Textarea
                 placeholder="Descreva a skill que deseja gerar... Ex: 'Skill que analisa código Python e sugere melhorias de segurança'"
-                className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-neon-purple outline-none transition-all min-h-[100px] resize-none"
                 value={skillPrompt}
                 onChange={e => setSkillPrompt(e.target.value)}
               />
-              <button
+              <Button
+                variant="primary"
+                className="w-full bg-gradient-to-r from-neon-purple to-neon-cyan"
+                loading={isGenerating}
                 onClick={handleGenerateSkill}
-                disabled={isGenerating}
-                className="w-full py-3 bg-gradient-to-r from-neon-purple to-neon-cyan text-white rounded-xl font-bold neon-glow-purple disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
               >
                 <Sparkles className={`w-5 h-5 ${isGenerating ? 'animate-spin' : ''}`} />
                 {isGenerating ? "Gerando com IA..." : "Gerar com IA"}
-              </button>
+              </Button>
             </div>
 
             {/* Generated Skill Preview */}
@@ -440,48 +464,34 @@ export default function Admin() {
                   <div className="flex-1 min-w-0 pr-4">
                     <div className="flex items-center gap-2 mb-1">
                       <span className="font-bold text-sm truncate">{skill.name}</span>
-                      {skill.verified && skill.source !== 'github' && (
-                        <span className="px-1.5 py-0.5 bg-green-500/20 text-green-400 text-[8px] rounded uppercase font-bold">AI Verified</span>
-                      )}
-                      {skill.source === 'github' && !skill.verified && (
-                        <span className="px-1.5 py-0.5 bg-blue-500/20 text-blue-400 text-[8px] rounded uppercase font-bold">Community</span>
-                      )}
-                      {!skill.is_active && (
-                        <span className="px-1.5 py-0.5 bg-yellow-500/20 text-yellow-400 text-[8px] rounded uppercase font-bold">Aguardando revisão</span>
-                      )}
+                      <OriginBadge verified={skill.verified} source={skill.source} isActive={skill.is_active} />
                     </div>
                     <div className="text-[10px] text-gray-500 truncate">{skill.slug}</div>
                     <div className="flex items-center gap-3 mt-1">
-                      <span className="px-1.5 py-0.5 bg-white/5 text-gray-400 text-[8px] rounded uppercase">{skill.category}</span>
+                      <Badge variant="tag" label={skill.category} />
                       <span className="text-[8px] text-gray-600">↓ {skill.downloads || 0}</span>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <button
+                    <Button
+                      variant={skill.is_active ? "icon-success" : "ghost"}
                       onClick={() => handleToggleSkill(skill)}
-                      className={`p-2 rounded-lg transition-all ${
-                        skill.is_active
-                          ? 'bg-green-500/10 text-green-400 hover:bg-green-500/20'
-                          : 'bg-gray-500/10 text-gray-500 hover:bg-gray-500/20'
-                      }`}
                       title={skill.is_active ? "Desativar" : "Ativar"}
                     >
                       <Power className="w-4 h-4" />
-                    </button>
-                    <button
+                    </Button>
+                    <Button
+                      variant="icon-danger"
                       onClick={() => handleDeleteSkill(skill)}
-                      className="p-2 bg-red-500/10 text-red-400 rounded-lg hover:bg-red-500/20 transition-all"
                       title="Deletar"
                     >
                       <Trash2 className="w-4 h-4" />
-                    </button>
+                    </Button>
                   </div>
                 </div>
               ))}
               {skills.length === 0 && (
-                <div className="text-center py-8 text-xs text-gray-600">
-                  Nenhuma skill criada ainda. Use o gerador acima para criar a primeira.
-                </div>
+                <EmptyState context="skills" title="Nenhuma skill criada ainda" description="Use o gerador acima para criar a primeira." />
               )}
             </div>
           </div>
@@ -494,20 +504,22 @@ export default function Admin() {
 
             {/* Action Buttons */}
             <div className="flex gap-4 mb-6">
-              <button
+              <Button
+                variant="primary"
+                className="flex-1 bg-green-500/20 border border-green-500/30 text-green-400 hover:bg-green-500/30 neon-glow-purple"
+                loading={isImporting}
                 onClick={handleRunImport}
-                disabled={isImporting}
-                className="flex-1 py-3 bg-green-500/20 text-green-400 border border-green-500/30 rounded-xl font-bold hover:bg-green-500/30 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
               >
                 <Play className="w-4 h-4" /> {isImporting ? "Rodando..." : "Rodar agora"}
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="primary"
+                className="flex-1 bg-blue-500/20 border border-blue-500/30 text-blue-400 hover:bg-blue-500/30"
+                loading={isImporting}
                 onClick={handleDryRun}
-                disabled={isImporting}
-                className="flex-1 py-3 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded-xl font-bold hover:bg-blue-500/30 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
               >
                 <Eye className="w-4 h-4" /> Dry run
-              </button>
+              </Button>
             </div>
 
             {/* Import Logs Table */}
@@ -531,9 +543,7 @@ export default function Admin() {
                     }`}>
                       <td className="py-2 px-2 text-gray-400 font-mono">{new Date(log.started_at).toLocaleString()}</td>
                       <td className="py-2 px-2">
-                        <span className={`px-1.5 py-0.5 rounded text-[8px] uppercase font-bold ${
-                          log.triggered_by === 'manual' ? 'bg-purple-500/20 text-purple-400' : 'bg-gray-500/20 text-gray-400'
-                        }`}>{log.triggered_by}</span>
+                        <Badge variant={log.triggered_by === 'manual' ? 'trigger-manual' : 'trigger-auto'} />
                       </td>
                       <td className="py-2 px-2 text-center text-gray-300">{log.discovered}</td>
                       <td className="py-2 px-2 text-center text-green-400">{log.inserted}</td>
@@ -551,7 +561,7 @@ export default function Admin() {
                     </tr>
                   ))}
                   {importLogs.length === 0 && (
-                    <tr><td colSpan={7} className="text-center py-8 text-gray-600">Nenhum import executado ainda.</td></tr>
+                    <tr><td colSpan={7}><EmptyState context="logs" title="Nenhum import executado ainda" /></td></tr>
                   )}
                 </tbody>
               </table>
@@ -618,13 +628,14 @@ export default function Admin() {
                 <div className="text-xs text-gray-400 uppercase tracking-widest mb-1">Pending Posts</div>
                 <div className="text-3xl font-display font-bold text-neon-purple">{pendingCount}</div>
               </div>
-              <button 
+              <Button
+                loading={isProcessing}
+                disabled={pendingCount === 0}
+                className="px-6 py-3"
                 onClick={handleProcessBatch}
-                disabled={pendingCount === 0 || isProcessing}
-                className="px-6 py-3 bg-neon-purple text-white rounded-xl font-bold neon-glow-purple disabled:opacity-50 disabled:cursor-not-allowed transition-all"
               >
                 {isProcessing ? "Processing..." : "Process Batch"}
-              </button>
+              </Button>
             </div>
             <p className="text-[10px] text-gray-500 italic">
               * Processes posts in batches of 5 with a 2s delay to avoid Gemini rate limits.
@@ -640,8 +651,8 @@ export default function Admin() {
                 <div className="flex flex-col gap-1">
                   <div className="font-bold text-neon-cyan flex items-center gap-2">
                     {log.action}
-                    <span className="text-[8px] px-1.5 py-0.5 bg-white/5 rounded text-gray-500 font-mono">
-                      {new Date(log.created_at).toLocaleString()}
+                    <span className="text-[8px] px-1.5 py-0.5">
+                      <Badge variant="tag" label={new Date(log.created_at).toLocaleString()} />
                     </span>
                   </div>
                   <div className="text-gray-500 font-mono scale-90 origin-left">
