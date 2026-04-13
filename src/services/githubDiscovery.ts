@@ -1,18 +1,21 @@
 const GITHUB_API = "https://api.github.com";
 const SEARCH_TERMS = [
-  "ai skills",
-  "agent skills",
-  "awesome skills",
-  "prompt engineering",
-  "llm tools",
-  "ai agents",
-  "claude skills",
-  "gpt tools",
-  "langchain tools",
-  "ai automation",
-  "prompt templates",
-  "ai workflows"
+  "claude skill",
+  "mcp skill",
+  "langchain skill",
+  "ai agent skill",
+  "prompt skill",
+  "llm skill",
+  "openai skill",
+  "anthropic skill",
+  "gpt skill",
+  "copilot skill",
+  "aifeast skill",
+  "agent tool skill"
 ];
+
+// Rotaciona linguagens para diversificar resultados
+const LANGUAGES = ["TypeScript", "Python", "JavaScript"];
 
 const HEADERS: Record<string, string> = {
   "Accept": "application/vnd.github.v3+json",
@@ -36,18 +39,23 @@ export interface RawSkillRepo {
 export async function discoverRepos(): Promise<RawSkillRepo[]> {
   const results: RawSkillRepo[] = [];
   const seen = new Set<string>();
+  let langIndex = 0;
 
   for (const term of SEARCH_TERMS) {
     try {
-      const url = `${GITHUB_API}/search/repositories?q=${encodeURIComponent(term)}&sort=stars&order=desc&per_page=30`;
+      // Rotaciona linguagem para diversificar resultados
+      const lang = LANGUAGES[langIndex % LANGUAGES.length];
+      langIndex++;
+
+      const url = `${GITHUB_API}/search/repositories?q=${encodeURIComponent(term)}+language:${encodeURIComponent(lang)}&sort=stars&order=desc&per_page=30`;
       const res = await fetch(url, { headers: HEADERS });
 
       if (!res.ok) {
         if (res.status === 403) {
-          console.warn(`[Discovery] GitHub API rate limit exceeded for "${term}"`);
+          console.warn(`[Discovery] GitHub API rate limit exceeded for "${term}" (${lang})`);
           break;
         }
-        console.warn(`[Discovery] HTTP ${res.status} for "${term}"`);
+        console.warn(`[Discovery] HTTP ${res.status} for "${term}" (${lang})`);
         continue;
       }
 
@@ -56,7 +64,7 @@ export async function discoverRepos(): Promise<RawSkillRepo[]> {
 
       for (const repo of data.items) {
         if (seen.has(repo.full_name)) continue;
-        if (repo.stargazers_count < 50) continue;
+        if (repo.stargazers_count < 10) continue;
         if (repo.fork) continue;
 
         seen.add(repo.full_name);
