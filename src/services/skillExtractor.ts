@@ -9,6 +9,127 @@ export interface RawSkill {
   stars: number;
 }
 
+// ==========================================
+// BLACKLIST DE TÍTULOS — seções comuns de README que NÃO são skills
+// ==========================================
+const TITLE_BLACKLIST = [
+  "installation",
+  "getting started",
+  "usage",
+  "requirements",
+  "license",
+  "contributing",
+  "changelog",
+  "what's in this repo",
+  "what is this",
+  "table of contents",
+  "overview",
+  "introduction",
+  "prerequisites",
+  "faq",
+  "troubleshooting",
+  "contact",
+  "acknowledgements",
+  "references",
+  "roadmap",
+  "about",
+  "setup",
+  "quick start",
+  "getting-started",
+  "how to use",
+  "how to install",
+  "documentation",
+  "docs",
+  "examples",
+  "demo",
+  "features",
+  "architecture",
+  "project structure",
+  "file structure",
+  "installation guide",
+  "configuration",
+  "config",
+  "deployment",
+  "docker",
+  "testing",
+  "tests",
+  "contribute",
+  "contributors",
+  "support",
+  "help",
+  "api",
+  "endpoints",
+  "changelog",
+  "version",
+  "release notes",
+  "migration guide",
+  "security",
+  "privacy",
+  "terms",
+  "disclaimer",
+  "sponsors",
+  "backers",
+  "donate",
+  "community",
+];
+
+// ==========================================
+// VALIDAÇÃO DE TÍTULO — rejeita lixo comum de READMEs
+// ==========================================
+
+function isBlacklisted(title: string): boolean {
+  const lower = title.toLowerCase().trim();
+  return TITLE_BLACKLIST.some(b => lower.includes(b));
+}
+
+function hasHtmlLikeChars(title: string): boolean {
+  return /[<>[\]()]/.test(title);
+}
+
+function isEmojiOrGarbage(title: string): boolean {
+  // Rejeita se o título é apenas emojis, caracteres especiais, ou strings como "中文", ".graphifyignore"
+  // Padrão: se não tem pelo menos 3 letras alfabéticas (a-z), rejeita
+  const alphaCount = (title.match(/[a-zA-Z]/g) || []).length;
+  if (alphaCount < 3) return true;
+
+  // Rejeita se contém apenas caracteres CJK ou símbolos
+  if (/^[\u4e00-\u9fff\p{Emoji}\s·\.\-_]+$/u.test(title)) return true;
+
+  return false;
+}
+
+function isRepoName(title: string, repoFullName: string): boolean {
+  // Extrai o nome do repo (parte após o /)
+  const repoName = repoFullName.split("/").pop()?.toLowerCase() || "";
+  // Normaliza título e nome do repo para comparação
+  const normalizedTitle = title.toLowerCase().replace(/[\s\-_.]/g, "");
+  const normalizedRepo = repoName.toLowerCase().replace(/[\s\-_.]/g, "");
+  return normalizedTitle === normalizedRepo || normalizedTitle.includes(normalizedRepo);
+}
+
+function isValidSkillTitle(title: string, repoFullName: string): boolean {
+  // Tamanho mínimo e máximo
+  if (title.length < 5 || title.length > 60) return false;
+
+  // Blacklist
+  if (isBlacklisted(title)) return false;
+
+  // HTML-like chars
+  if (hasHtmlLikeChars(title)) return false;
+
+  // Emoji/garbage
+  if (isEmojiOrGarbage(title)) return false;
+
+  // Igual ao nome do repo
+  if (isRepoName(title, repoFullName)) return false;
+
+  return true;
+}
+
+// ==========================================
+// EXTRAÇÃO PRINCIPAL
+// ==========================================
+
 export async function extractSkillsFromRepo(
   repo: RawSkillRepo
 ): Promise<RawSkill[]> {
@@ -29,7 +150,12 @@ export async function extractSkillsFromRepo(
       const title = lines[0]?.trim();
       const body = lines.slice(1).join("\n").trim();
 
-      if (!title || title.length < 3 || title.length > 100) continue;
+      if (!title) continue;
+
+      // Filtros rigorosos de título
+      if (!isValidSkillTitle(title, repo.full_name)) continue;
+
+      // Corpo mínimo
       if (body.length < 30) continue;
 
       // Filtrar seções que parecem skills reais
