@@ -40,9 +40,9 @@ export async function importSkills(
     details: { inserted: [], updated: [], skipped: [], auto_activated: [] }
   };
 
-  // Filtrar apenas aprovados com score >= 0.6
+  // Filtrar apenas aprovados com score >= 0.75 (aumentado de 0.6 para melhor qualidade)
   const approved = validatedSkills.filter(
-    s => s.approved && s.score >= 0.6
+    s => s.approved && s.score >= 0.75
   );
 
   for (const validated of approved) {

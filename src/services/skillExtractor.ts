@@ -71,6 +71,10 @@ const TITLE_BLACKLIST = [
   "backers",
   "donate",
   "community",
+  "how it works",
+  "ai agent",
+  "awesome",
+  "tutorial",
 ];
 
 // ==========================================
