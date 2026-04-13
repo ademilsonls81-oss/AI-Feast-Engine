@@ -21,12 +21,58 @@ export default function Dashboard() {
   const [showWelcome, setShowWelcome] = useState(false);
   const [dismissedFirstRun, setDismissedFirstRun] = useState(false);
 
-  // Reset key visibility when the actual key changes (e.g., after rotation)
+  // Track the actual key value to avoid re-triggering on object reference changes
+  const [prevApiKey, setPrevApiKey] = useState<string | undefined>(undefined);
+
+  // Reset key visibility only when the actual key VALUE changes (e.g., after rotation)
   useEffect(() => {
-    setShowKey(false);
+    const currentKey = profile?.api_key;
+    if (currentKey !== prevApiKey) {
+      setShowKey(false);
+      setPrevApiKey(currentKey);
+    }
   }, [profile?.api_key]);
 
   const handleToggleShowKey = () => setShowKey((prev) => !prev);
+
+  const copyToClipboard = async (text: string) => {
+    try {
+      // Primary: modern Clipboard API
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        // Fallback: execCommand for older browsers
+        const textarea = document.createElement("textarea");
+        textarea.value = text;
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textarea);
+      }
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error("Copy failed:", err);
+      // Last resort fallback
+      try {
+        const textarea = document.createElement("textarea");
+        textarea.value = text;
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textarea);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      } catch (err2) {
+        console.error("All copy methods failed:", err2);
+        alert("Failed to copy. Please select and copy manually: " + text);
+      }
+    }
+  };
 
   useEffect(() => {
     if (user) {
@@ -162,12 +208,6 @@ export default function Dashboard() {
     } finally {
       setIsUpgrading(false);
     }
-  };
-
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
   };
 
   if (loading) return (
