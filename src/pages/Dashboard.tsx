@@ -21,6 +21,13 @@ export default function Dashboard() {
   const [showWelcome, setShowWelcome] = useState(false);
   const [dismissedFirstRun, setDismissedFirstRun] = useState(false);
 
+  // Reset key visibility when the actual key changes (e.g., after rotation)
+  useEffect(() => {
+    setShowKey(false);
+  }, [profile?.api_key]);
+
+  const handleToggleShowKey = () => setShowKey((prev) => !prev);
+
   useEffect(() => {
     if (user) {
       fetchLogs(user.id);
@@ -278,8 +285,8 @@ export default function Dashboard() {
                 <div className="flex items-center gap-1">
                   <button
                     type="button"
-                    onClick={() => setShowKey(!showKey)}
-                    className="p-2 hover:bg-white/5 rounded-lg transition-colors text-gray-400 hover:text-white"
+                    onClick={handleToggleShowKey}
+                    className="p-2 hover:bg-white/5 rounded-lg transition-colors text-gray-400 hover:text-white cursor-pointer"
                     title={showKey ? "Hide API Key" : "Show API Key"}
                   >
                     {showKey ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
