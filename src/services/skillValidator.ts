@@ -64,13 +64,24 @@ export async function validateSkill(
               },
               {
                 role: "user",
-                content: `Evaluate this AI skill for safety and quality:
+                content: `You are evaluating whether this is a REAL, EXECUTABLE AI skill or just garbage extracted from a README file.
+
+A real skill must:
+1. Have a clear, specific function (generate, analyze, scan, convert, summarize something)
+2. Have a name that describes an action or tool (NOT: "Installation", "DeerFlow", "Overview")
+3. Have a description that explains WHAT it does, not HOW to install it
+
 Name: ${skill.name}
-Category: ${skill.category}
+Category: ${skill.category}  
 Description: ${skill.description}
 
-Return ONLY JSON:
-{"risk":"low","score":0.85,"warnings":[]}`
+Score rules:
+- 0.9-1.0: Clearly a real, useful, executable AI skill
+- 0.7-0.89: Probably a real skill, minor quality issues
+- 0.5-0.69: Uncertain — might be real but description is weak
+- 0.0-0.49: NOT a real skill — garbage, README section, or installation instructions
+
+Return ONLY JSON: {"risk":"low","score":0.85,"warnings":[],"is_real_skill":true}`
               }
             ],
             response_format: { type: "json_object" },
@@ -87,6 +98,17 @@ Return ONLY JSON:
 
         const score = parsed.score || 0.5;
         const risk = parsed.risk || "medium";
+
+        // Extra validation: if IA says it's not a real skill or score is too low
+        if (parsed.is_real_skill === false || score < 0.6) {
+          return {
+            skill: { ...skill, risk_level: "high", score: Math.min(score, 0.4) },
+            risk_level: "high",
+            score: Math.min(score, 0.4),
+            warnings: parsed.warnings || ["AI determined this is not a real skill"],
+            approved: false
+          };
+        }
 
         return {
           skill: { ...skill, risk_level: risk, score },

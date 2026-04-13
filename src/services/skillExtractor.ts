@@ -169,7 +169,7 @@ export async function extractSkillsFromRepo(
         body.toLowerCase().includes(kw)
       );
 
-      if (!hasKeyword && skills.length > 0) continue;
+      if (!hasKeyword) continue;
 
       skills.push({
         name: title,

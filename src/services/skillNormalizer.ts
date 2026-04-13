@@ -85,6 +85,6 @@ export function normalizeSkill(raw: RawSkill): NormalizedSkill {
     repo_url: raw.repo_url,
     stars: raw.stars,
     verified: false,
-    is_active: true
+    is_active: false
   };
 }
