@@ -79,24 +79,70 @@ export async function runImportPipeline(
     // 2. Extract + Normalize + Validate
     const validatedSkills: any[] = [];
 
-    for (const repo of repos.slice(0, 15)) {
+    console.log(`\n========== PIPELINE DEBUG: EXTRACTION PHASE ==========`);
+    console.log(`[DEBUG] Processing up to ${Math.min(repos.length, 15)} repos\n`);
+
+    for (let i = 0; i < repos.length && i < 15; i++) {
+      const repo = repos[i];
+      console.log(`[DEBUG] ┌─ Repo ${i + 1}/${Math.min(repos.length, 15)}: ${repo.full_name} (${repo.stars}⭐)`);
+
       const rawSkills = await extractSkillsFromRepo(repo);
       log.extracted += rawSkills.length;
 
-      for (const raw of rawSkills.slice(0, 5)) {
+      console.log(`[DEBUG] │  Extracted: ${rawSkills.length} raw skills`);
+      if (rawSkills.length === 0) {
+        console.log(`[DEBUG] │  ⚠️  NO skills extracted — all sections filtered out`);
+      }
+
+      for (let j = 0; j < rawSkills.length && j < 5; j++) {
+        const raw = rawSkills[j];
+        console.log(`[DEBUG] │  ┌─ Raw skill ${j + 1}: "${raw.name}" (desc length: ${raw.description.length})`);
+
         const normalized = normalizeSkill(raw);
+        console.log(`[DEBUG] │  │  Normalized → slug: "${normalized.slug}", category: "${normalized.category}"`);
+
         const result = await validateSkill(normalized, groqApiKey);
         validatedSkills.push(result);
 
+        console.log(`[DEBUG] │  │  Validation → score: ${result.score}, risk: ${result.risk_level}, approved: ${result.approved}`);
+        if (!result.approved) {
+          console.log(`[DEBUG] │  │  ❌ REJECTED — warnings: ${JSON.stringify(result.warnings)}`);
+        } else {
+          console.log(`[DEBUG] │  │  ✅ APPROVED`);
+        }
+
         await new Promise(r => setTimeout(r, 300));
       }
+      console.log(`[DEBUG] └─\n`);
     }
+
+    console.log(`\n========== PIPELINE DEBUG: SUMMARY ==========`);
+    console.log(`[DEBUG] Total repos discovered: ${log.discovered}`);
+    console.log(`[DEBUG] Total repos processed: ${Math.min(repos.length, 15)}`);
+    console.log(`[DEBUG] Total raw skills extracted: ${log.extracted}`);
+    console.log(`[DEBUG] Total skills validated: ${validatedSkills.length}`);
+    console.log(`[DEBUG] Breakdown:`);
+
+    let rejectedCount = 0;
+    let approvedCount = 0;
+    for (const v of validatedSkills) {
+      if (v.approved) {
+        approvedCount++;
+        console.log(`[DEBUG]   ✅ "${v.skill.name}" → score: ${v.score}, risk: ${v.risk_level}`);
+      } else {
+        rejectedCount++;
+        console.log(`[DEBUG]   ❌ "${v.skill.name}" → score: ${v.score}, risk: ${v.risk_level}, warnings: ${JSON.stringify(v.warnings)}`);
+      }
+    }
+    console.log(`[DEBUG] Approved: ${approvedCount} | Rejected: ${rejectedCount}`);
+    console.log(`========== END DEBUG ==========\n`);
 
     const approved = validatedSkills.filter(s => s.approved);
     log.approved = approved.length;
     console.log(`[Scheduler] ${log.approved} skills approved out of ${validatedSkills.length} validated`);
 
     // 3. Import (ou dry run)
+    console.log(`[DEBUG] ┌─ Import phase — ${approved.length} approved skills to import`);
     if (dryRun) {
       log.skipped = validatedSkills.length - log.approved;
       log.inserted = log.approved; // Simulação
@@ -108,6 +154,10 @@ export async function runImportPipeline(
       log.skipped = report.skipped;
       log.auto_activated = report.auto_activated;
       log.errors = report.errors;
+      console.log(`[DEBUG] │  Import report: inserted=${report.inserted}, updated=${report.updated}, skipped=${report.skipped}, auto_activated=${report.auto_activated}`);
+      console.log(`[DEBUG] │  Errors: ${JSON.stringify(report.errors)}`);
+      console.log(`[DEBUG] │  Skipped details: ${JSON.stringify(report.details.skipped)}`);
+      console.log(`[DEBUG] └─`);
     }
 
   } catch (err: any) {
