@@ -79,8 +79,8 @@ async function runDiagnosisWithAI() {
       console.log(`✅ [RiskAnalyzer] Risk level: ${riskResult.risk_level}`);
       console.log(`✅ [RiskAnalyzer] Decision: ${riskResult.decision}`);
       console.log(`✅ [RiskAnalyzer] Executed: ${riskResult.executed}`);
-      if (riskResult.executionError) {
-        console.error(`❌ [RiskAnalyzer] Execution error: ${riskResult.executionError}`);
+      if (riskResult.execution_error) {
+        console.error(`❌ [RiskAnalyzer] Execution error: ${riskResult.execution_error}`);
       }
 
       // Fase 5: Auto-fix (only if decision was auto_apply)

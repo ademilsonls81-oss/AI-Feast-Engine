@@ -238,6 +238,33 @@ async function createBackup(filePath: string): Promise<string | null> {
   }
 }
 
+/**
+ * Restore a file from its backup.
+ *
+ * @param backupPath - Path to the backup file
+ * @param originalPath - Path to restore the file to
+ * @returns true if restore was successful
+ */
+export async function restoreFromBackup(backupPath: string, originalPath: string): Promise<boolean> {
+  try {
+    const projectRoot = process.cwd();
+    const fullBackupPath = path.resolve(projectRoot, backupPath);
+    const fullOriginalPath = path.resolve(projectRoot, originalPath);
+
+    if (!fsSync.existsSync(fullBackupPath)) {
+      console.error(`[Fixer] Backup file not found: ${backupPath}`);
+      return false;
+    }
+
+    await fs.copyFile(fullBackupPath, fullOriginalPath);
+    console.log(`[Fixer] ✅ Restored ${originalPath} from backup`);
+    return true;
+  } catch (err: any) {
+    console.error(`[Fixer] Failed to restore from backup: ${err.message}`);
+    return false;
+  }
+}
+
 // ==========================================
 // SYNTAX VERIFICATION
 // ==========================================
@@ -464,13 +491,37 @@ export async function applyFix(
     }
   }
 
-  // === PHASE 4: Update Status ===
+  // === PHASE 4: Calculate Success Status ===
   const success = modifiedFiles.length > 0;
 
-  console.log(`[Fixer] === Fix Complete ===`);
+  // === PHASE 5: Smoke Tests (Validation) ===
+  console.log("[Fixer] Phase 5: Running smoke tests to validate fix...");
+
+  const { validateFixWithRollback } = await import("./tester.js");
+  const validationResult = await validateFixWithRollback(autoFixId, backupFiles, modifiedFiles);
+
+  if (!validationResult.passed) {
+    console.log(`[Fixer] ⛔ Smoke tests failed — fix rolled back: ${validationResult.error}`);
+
+    return {
+      action: "failed",
+      success: false,
+      modifiedFiles: [],
+      backupFiles,
+      error: validationResult.error || "Smoke tests failed — fix was rolled back",
+      securityAuditPassed: true,
+      reason: `Validation failed: ${validationResult.error}`
+    };
+  }
+
+  console.log("[Fixer] ✅ Smoke tests passed — fix validated");
+
+  // === PHASE 6: Final Status Update ===
+  console.log(`[Fixer] === Fix Complete & Validated ===`);
   console.log(`[Fixer] Success: ${success}`);
   console.log(`[Fixer] Modified files: ${modifiedFiles.join(", ") || "none"}`);
   console.log(`[Fixer] Backup files: ${backupFiles.join(", ") || "none"}`);
+  console.log(`[Fixer] Validation: passed`);
 
   // Update risk decision with execution result
   await executeRiskDecision(

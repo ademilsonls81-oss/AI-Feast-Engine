@@ -9,13 +9,31 @@
  * - Revert on failure
  */
 
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import fs from "fs/promises";
 import fsSync from "fs";
 import path from "path";
 import { applyFix } from "../src/autonomous/fixer.js";
 import type { DiagnosisResult } from "../src/autonomous/diagnostician.js";
 import type { RiskAnalysisResult } from "../src/autonomous/riskAnalyzer.js";
+
+// Mock the tester module to avoid requiring a running server
+vi.mock("../src/autonomous/tester.js", () => ({
+  validateFixWithRollback: vi.fn().mockResolvedValue({
+    passed: true,
+    status: "passed",
+    error: undefined
+  }),
+  runSmokeTests: vi.fn().mockResolvedValue({
+    passed: true,
+    tests: [],
+    totalTests: 3,
+    passedTests: 3,
+    failedTests: 0,
+    duration: 100
+  }),
+  quickValidation: vi.fn().mockResolvedValue({ passed: true })
+}));
 
 // Test file path (non-critical)
 const TEST_FILE = "src/autonomous/test-fix-target.ts";
