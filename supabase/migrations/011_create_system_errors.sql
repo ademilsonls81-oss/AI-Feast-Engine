@@ -34,8 +34,7 @@ CREATE INDEX IF NOT EXISTS idx_system_errors_hourly ON public.system_errors(crea
 -- Row Level Security
 ALTER TABLE public.system_errors ENABLE ROW LEVEL SECURITY;
 
--- Allow service role (backend) full access
--- No RLS policies needed for service_role key — it bypasses RLS automatically.
+-- Service role (backend) bypasses RLS automatically — no policy needed for inserts.
 -- For admin users to read errors:
 CREATE POLICY "Admins can read system_errors" ON public.system_errors
   FOR SELECT USING (
@@ -53,6 +52,9 @@ CREATE POLICY "Admins can update system_errors" ON public.system_errors
       WHERE users.id = auth.uid() AND users.role = 'admin'
     )
   );
+
+-- NOTE: The backend uses SUPABASE_SERVICE_ROLE_KEY which bypasses RLS entirely.
+-- No INSERT policy is needed for the backend. The service role can insert, read, and update freely.
 
 -- Comment
 COMMENT ON TABLE public.system_errors IS 'Centralized error log for autonomous system monitoring. Used by monitor.ts for threshold detection.';
