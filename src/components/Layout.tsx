@@ -116,9 +116,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             © 2026 AI Feast Engine. All systems operational.
           </div>
           <div className="flex items-center gap-8">
-            <a href="#" className="text-gray-500 hover:text-white transition-all text-xs">Privacy</a>
-            <a href="#" className="text-gray-500 hover:text-white transition-all text-xs">Terms</a>
-            <a href="#" className="text-gray-500 hover:text-white transition-all text-xs">API Status</a>
+            <Link to="/privacy" className="text-gray-500 hover:text-white transition-all text-xs">Privacy</Link>
+            <Link to="/terms" className="text-gray-500 hover:text-white transition-all text-xs">Terms</Link>
+            <Link to="/status" className="text-gray-500 hover:text-white transition-all text-xs">API Status</Link>
           </div>
         </div>
       </footer>

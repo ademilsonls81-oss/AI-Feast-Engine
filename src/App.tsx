@@ -6,6 +6,9 @@ import Admin from "./pages/Admin";
 import Docs from "./pages/Docs";
 import PublicFeed from "./pages/PublicFeed";
 import Skills from "./pages/Skills";
+import Privacy from "./pages/Privacy";
+import Terms from "./pages/Terms";
+import Status from "./pages/Status";
 
 export default function App() {
   return (
@@ -18,6 +21,9 @@ export default function App() {
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/admin" element={<Admin />} />
           <Route path="/docs" element={<Docs />} />
+          <Route path="/privacy" element={<Privacy />} />
+          <Route path="/terms" element={<Terms />} />
+          <Route path="/status" element={<Status />} />
         </Routes>
       </Layout>
     </BrowserRouter>
