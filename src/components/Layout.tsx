@@ -3,7 +3,7 @@ import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { signInWithGoogle } from "../lib/supabaseClient";
 import { motion } from "motion/react";
-import { LayoutDashboard, BookOpen, Shield, LogOut, Globe, Zap, User, Puzzle } from "lucide-react";
+import { LayoutDashboard, BookOpen, Shield, LogOut, Globe, Zap, User, Puzzle, Activity } from "lucide-react";
 import { Button } from "./ui";
 
 export default function Layout({ children }: { children: React.ReactNode }) {
@@ -65,14 +65,25 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 </Link>
 
                 {profile?.role === 'admin' && (
-                  <Link 
-                    to="/admin"
-                    className={`p-2 rounded-full transition-all ${
-                      isActive("/admin") ? "text-neon-cyan bg-neon-cyan/10" : "text-gray-500 hover:text-gray-300"
-                    }`}
-                  >
-                    <Shield className="w-5 h-5" />
-                  </Link>
+                  <>
+                    <Link
+                      to="/admin/system"
+                      className={`flex items-center gap-2 px-3 py-2 rounded-full text-xs font-bold transition-all ${
+                        isActive("/admin/system") ? "text-neon-cyan bg-neon-cyan/10" : "text-gray-400 hover:text-white hover:bg-white/10"
+                      }`}
+                    >
+                      <Activity className="w-3.5 h-3.5" />
+                      System
+                    </Link>
+                    <Link
+                      to="/admin"
+                      className={`p-2 rounded-full transition-all ${
+                        isActive("/admin") ? "text-neon-cyan bg-neon-cyan/10" : "text-gray-500 hover:text-gray-300"
+                      }`}
+                    >
+                      <Shield className="w-5 h-5" />
+                    </Link>
+                  </>
                 )}
 
                 <div className="h-6 w-px bg-white/10" />

@@ -3,6 +3,7 @@ import Layout from "./components/Layout";
 import Landing from "./pages/Landing";
 import Dashboard from "./pages/Dashboard";
 import Admin from "./pages/Admin";
+import SystemDashboard from "./pages/SystemDashboard";
 import Docs from "./pages/Docs";
 import PublicFeed from "./pages/PublicFeed";
 import Skills from "./pages/Skills";
@@ -20,6 +21,7 @@ export default function App() {
           <Route path="/skills" element={<Skills />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/admin" element={<Admin />} />
+          <Route path="/admin/system" element={<SystemDashboard />} />
           <Route path="/docs" element={<Docs />} />
           <Route path="/privacy" element={<Privacy />} />
           <Route path="/terms" element={<Terms />} />
