@@ -27,6 +27,7 @@
 import { exec } from "child_process";
 import { promisify } from "util";
 import { supabase } from "../lib/supabase.js";
+import { checkDeployProtections, recordDeploy } from "./protections.js";
 
 const execAsync = promisify(exec);
 
@@ -210,6 +211,29 @@ export async function deployIfSafe(config: DeployConfig): Promise<DeployResult> 
 
   const deployStartTime = Date.now();
 
+  // === PHASE 0: Check Deploy Protections ===
+  console.log("[Deployer] Phase 0: Checking deploy protections...");
+
+  const deployProtections = await checkDeployProtections();
+
+  if (!deployProtections.allPassed) {
+    console.log(`[Deployer] ⛔ Deploy BLOCKED by protections:`);
+    for (const reason of deployProtections.blockingReasons) {
+      console.log(`[Deployer]   - ${reason}`);
+    }
+
+    return {
+      success: false,
+      commitHash: undefined,
+      branch: undefined,
+      message: undefined,
+      deployTime: Date.now() - deployStartTime,
+      error: `Deploy blocked by protections: ${deployProtections.blockingReasons.join("; ")}`
+    };
+  }
+
+  console.log("[Deployer] ✅ All deploy protections passed");
+
   // === PHASE 1: Pre-flight Checks ===
   console.log("[Deployer] Phase 1: Pre-flight checks...");
 
@@ -268,6 +292,9 @@ export async function deployIfSafe(config: DeployConfig): Promise<DeployResult> 
     console.log(`[Deployer] Commit: ${commitHash}`);
     console.log(`[Deployer] Branch: ${currentBranch}`);
     console.log(`[Deployer] Time: ${deployTime}ms`);
+
+    // Registrar deploy para cooldown
+    recordDeploy();
 
     return {
       success: true,

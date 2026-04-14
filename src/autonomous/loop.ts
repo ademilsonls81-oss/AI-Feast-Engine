@@ -31,6 +31,15 @@ import { supabase } from "../lib/supabase.js";
 import { runDiagnosis } from "./diagnostician.js";
 import { fullRiskPipeline } from "./riskAnalyzer.js";
 import { applyFix } from "./fixer.js";
+import {
+  checkAllProtections,
+  checkDeployProtections,
+  recordLoopExecution,
+  recordLoopFailure,
+  recordLoopSuccess,
+  recordDeploy,
+  getCircuitBreakerStatus
+} from "./protections.js";
 import type { SystemError } from "./diagnostician.js";
 
 // ==========================================
@@ -90,6 +99,38 @@ export async function runAutonomousLoop(): Promise<{
   console.log(`[Loop] Start time: ${new Date().toISOString()}`);
 
   try {
+    // ==========================================
+    // FASE 10: Verificar Proteções Antes de Executar
+    // ==========================================
+    console.log("\n[Loop] === Phase 0: Safety Protections Check ===");
+
+    const protectionsCheck = await checkAllProtections();
+
+    if (!protectionsCheck.allPassed) {
+      console.log(`[Loop] ⛔ Loop BLOCKED by safety protections:`);
+      for (const reason of protectionsCheck.blockingReasons) {
+        console.log(`[Loop]   - ${reason}`);
+      }
+
+      return {
+        success: false,
+        errorsChecked: 0,
+        diagnosisTriggered: false,
+        fixAttempted: false,
+        duration: 0,
+        error: `Blocked by protections: ${protectionsCheck.blockingReasons.join("; ")}`
+      };
+    }
+
+    if (protectionsCheck.warnings.length > 0) {
+      console.log(`[Loop] ⚠️  Protection warnings:`);
+      for (const warning of protectionsCheck.warnings) {
+        console.log(`[Loop]   - ${warning}`);
+      }
+    }
+
+    console.log("[Loop] ✅ All safety protections passed");
+
     // Set timeout to prevent hanging loop
     const timeoutPromise = new Promise<never>((_, reject) => {
       setTimeout(() => reject(new Error(`Loop timeout after ${LOOP_TIMEOUT_MS}ms`)), LOOP_TIMEOUT_MS);
@@ -106,6 +147,10 @@ export async function runAutonomousLoop(): Promise<{
     console.log("║  AUTONOMOUS LOOP — Execution complete                      ║");
     console.log("╚══════════════════════════════════════════════════════════════╝");
 
+    // Registrar sucesso para circuit breaker
+    recordLoopSuccess();
+    recordLoopExecution();
+
     return {
       ...result,
       duration: loopDuration
@@ -114,6 +159,9 @@ export async function runAutonomousLoop(): Promise<{
     const loopDuration = Date.now() - loopStartTime;
     console.error(`[Loop] ❌ Loop failed after ${loopDuration}ms: ${err.message}`);
     console.error(`[Loop] Stack: ${err.stack}`);
+
+    // Registrar falha para circuit breaker
+    recordLoopFailure();
 
     return {
       success: false,
@@ -215,6 +263,20 @@ async function executeLoopPhases(): Promise<{
   }
 
   console.log(`[Loop] 🔧 Decision is "auto_apply" — attempting automated fix...`);
+
+  // Verificar proteções de deploy antes de executar fix (que pode incluir deploy)
+  console.log("[Loop] === Phase 3.5: Deploy Safety Check ===");
+  const deployProtections = await checkDeployProtections();
+
+  if (!deployProtections.allPassed) {
+    console.log(`[Loop] ⚠️  Deploy blocked by protections:`);
+    for (const reason of deployProtections.blockingReasons) {
+      console.log(`[Loop]   - ${reason}`);
+    }
+    console.log(`[Loop] ⚠️  Fix will still execute locally, but deploy will be skipped`);
+  } else {
+    console.log("[Loop] ✅ Deploy protections passed");
+  }
 
   const fixResult = await applyFix(diagnosis, riskResult, diagnosis.auto_fix_id);
 

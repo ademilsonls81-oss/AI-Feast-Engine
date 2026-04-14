@@ -25,6 +25,18 @@ export { applyFix, simulateSyntaxError } from "./fixer.js";
 export { runSecurityAudit, quickSecurityAudit } from "./auditor.js";
 export { runSmokeTests, validateFixWithRollback, quickValidation } from "./tester.js";
 export { deployIfSafe, isDeploySafe, revertDeploy } from "./deployer.js";
+export {
+  checkAllProtections,
+  checkDeployProtections,
+  checkRateLimit,
+  checkCircuitBreaker,
+  checkDeployCooldown,
+  checkDailyDeployLimit,
+  validateEnvironment,
+  getCircuitBreakerStatus,
+  resetProtections,
+  resetCircuitBreaker
+} from "./protections.js";
 export { isLoopActive, getLoopStatus } from "./loop.js";
 export type { ErrorType, ErrorSource, ErrorSeverity } from "./errorLogger.js";
 export type { SystemError, DiagnosisResult } from "./diagnostician.js";
