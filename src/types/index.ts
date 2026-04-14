@@ -3,6 +3,7 @@ export interface UserProfile {
   email: string;
   api_key: string;
   stripe_customer_id?: string;
+  stripe_subscription_id?: string;
   plan: 'free' | 'pro';
   usage_count: number;
   rate_limit: number;

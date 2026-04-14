@@ -18,6 +18,7 @@ import adminRouter from "./src/routes/admin.js";
 import skillsRouter from "./src/routes/skills.js";
 import publicRouter from "./src/routes/public.js";
 import { startCronJob } from "./src/services/skillScheduler.js";
+import { startMonthlyResetJob } from "./src/services/monthlyReset.js";
 
 // ==========================================
 // SECURITY: Timing-safe string comparison
@@ -123,13 +124,31 @@ app.post("/api/stripe-webhook", express.raw({ type: "application/json" }), async
     case "checkout.session.completed": {
       const session = event.data.object as any;
       console.log(`💰 Payment success: User ${session.client_reference_id}`);
-      await supabase.from("users").update({ plan: "pro", stripe_customer_id: session.customer, rate_limit: 100 }).eq("id", session.client_reference_id);
+      await supabase.from("users").update({
+        plan: "pro",
+        stripe_customer_id: session.customer,
+        stripe_subscription_id: session.subscription,
+        rate_limit: 100
+      }).eq("id", session.client_reference_id);
       break;
     }
     case "customer.subscription.deleted": {
       const subscription = event.data.object as any;
       const { data: u } = await supabase.from("users").select("id").eq("stripe_customer_id", subscription.customer).single();
-      if (u) { await supabase.from("users").update({ plan: "free", rate_limit: 10 }).eq("id", u.id); console.log(`📉 User ${u.id} downgraded.`); }
+      if (u) {
+        await supabase.from("users").update({ plan: "free", rate_limit: 10, stripe_subscription_id: null }).eq("id", u.id);
+        console.log(`📉 User ${u.id} downgraded.`);
+      }
+      break;
+    }
+    case "invoice.payment_failed": {
+      const invoice = event.data.object as any;
+      const customerId = invoice.customer;
+      const { data: u } = await supabase.from("users").select("id").eq("stripe_customer_id", customerId).single();
+      if (u) {
+        await supabase.from("users").update({ plan: "free", rate_limit: 10, stripe_subscription_id: null }).eq("id", u.id);
+        console.log(`💳 Payment failed: User ${u.id} downgraded to free.`);
+      }
       break;
     }
   }
@@ -225,6 +244,7 @@ app.post("/api/user/rotate-key", async (req, res) => {
 app.post("/api/create-checkout-session", async (req, res) => {
   const { userId, email } = req.body;
   if (!userId || !email) return res.status(400).json({ error: "Missing data" });
+  if (process.env.STRIPE_ENABLED !== "true") return res.status(503).json({ error: "Stripe not enabled" });
   try {
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ["card"],
@@ -237,6 +257,25 @@ app.post("/api/create-checkout-session", async (req, res) => {
       metadata: { userId }
     });
     res.json({ url: session.url });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ==========================================
+// STRIPE CUSTOMER PORTAL
+// ==========================================
+app.post("/api/create-portal-session", async (req, res) => {
+  const { userId } = req.body;
+  if (!userId) return res.status(400).json({ error: "Missing userId" });
+  if (process.env.STRIPE_ENABLED !== "true") return res.status(503).json({ error: "Stripe not enabled" });
+  try {
+    const { data: user, error } = await supabase.from("users").select("stripe_customer_id, plan").eq("id", userId).single();
+    if (error || !user) return res.status(404).json({ error: "User not found" });
+    if (user.plan !== "pro" || !user.stripe_customer_id) return res.status(400).json({ error: "Only Pro users can manage subscriptions" });
+    const portalSession = await stripe.billingPortal.sessions.create({
+      customer: user.stripe_customer_id,
+      return_url: `${req.headers.origin}/dashboard`
+    });
+    res.json({ url: portalSession.url });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
@@ -384,11 +423,16 @@ async function startServer() {
 
 startServer();
 
-// Start skill import cron job (production only)
+// Start skill import cron job and monthly reset (production only)
 if (process.env.NODE_ENV === "production") {
   try {
     startCronJob();
   } catch (err: any) {
     console.error(`[Scheduler] Failed to start cron job: ${err.message}`);
+  }
+  try {
+    startMonthlyResetJob();
+  } catch (err: any) {
+    console.error(`[Scheduler] Failed to start monthly reset: ${err.message}`);
   }
 }

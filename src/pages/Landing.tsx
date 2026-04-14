@@ -2,17 +2,44 @@ import React, { useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { Link } from "react-router-dom";
 import { Zap, Shield, Globe, Database, ArrowRight, CheckCircle2 } from "lucide-react";
-import { signInWithGoogle } from "../lib/supabaseClient";
+import { signInWithGoogle, supabase } from "../lib/supabaseClient";
 import api from "../lib/api";
 import { cn } from "../lib/utils";
 import { Badge, Button, Card } from "../components/ui";
+import { useAuth } from "../contexts/AuthContext";
 
 export default function Landing() {
+  const { user } = useAuth();
   const [stats, setStats] = useState({ postsCount: 0, feedsCount: 0, languages: 11 });
+  const [isUpgrading, setIsUpgrading] = useState(false);
 
   useEffect(() => {
     api.get("/api/stats").then(res => setStats(res.data)).catch(console.error);
   }, []);
+
+  const handleUpgrade = async () => {
+    // Se não estiver logado, redireciona para login
+    if (!user) {
+      signInWithGoogle();
+      return;
+    }
+
+    setIsUpgrading(true);
+    try {
+      const res = await api.post("/api/create-checkout-session", {
+        userId: user.id,
+        email: user.email
+      });
+      if (res.data.url) {
+        window.location.href = res.data.url;
+      }
+    } catch (err) {
+      console.error("Checkout error:", err);
+      alert("Failed to start checkout. Please try again.");
+    } finally {
+      setIsUpgrading(false);
+    }
+  };
 
   return (
     <div className="overflow-hidden">
@@ -190,10 +217,11 @@ export default function Landing() {
                 <li className="flex items-center gap-3 text-sm text-gray-300"><CheckCircle2 className="w-5 h-5 text-neon-cyan" /> Premium support</li>
               </ul>
               <button
-                onClick={() => signInWithGoogle()}
-                className="w-full py-4 bg-gradient-to-r from-neon-purple to-neon-cyan text-white rounded-xl font-bold hover:opacity-90 transition-all shadow-lg shadow-neon-purple/30"
+                onClick={handleUpgrade}
+                disabled={isUpgrading}
+                className="w-full py-4 bg-gradient-to-r from-neon-purple to-neon-cyan text-white rounded-xl font-bold hover:opacity-90 transition-all shadow-lg shadow-neon-purple/30 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Upgrade to Pro
+                {isUpgrading ? "LOADING..." : "Upgrade to Pro"}
               </button>
             </div>
           </div>

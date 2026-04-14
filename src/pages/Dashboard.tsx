@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { supabase, signInWithGoogle } from "../lib/supabaseClient";
 import { motion } from "motion/react";
-import { Key, BarChart3, History, Copy, Check, Zap, AlertCircle, RefreshCw, Layers, Database, Eye, EyeOff } from "lucide-react";
+import { Key, BarChart3, History, Copy, Check, Zap, AlertCircle, RefreshCw, Layers, Database, Eye, EyeOff, Settings } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import api from "../lib/api";
 import { Post, AppStats } from "../types";
@@ -17,6 +17,7 @@ export default function Dashboard() {
   const [copied, setCopied] = useState(false);
   const [isRotating, setIsRotating] = useState(false);
   const [isUpgrading, setIsUpgrading] = useState(false);
+  const [isManaging, setIsManaging] = useState(false);
   const [showKey, setShowKey] = useState(false);
   const [showWelcome, setShowWelcome] = useState(false);
   const [dismissedFirstRun, setDismissedFirstRun] = useState(false);
@@ -210,6 +211,23 @@ export default function Dashboard() {
     }
   };
 
+  const handleManageSubscription = async () => {
+    setIsManaging(true);
+    try {
+      const res = await api.post("/api/create-portal-session", {
+        userId: user?.id
+      });
+      if (res.data.url) {
+        window.location.href = res.data.url;
+      }
+    } catch (err: any) {
+      const errorMsg = err.response?.data?.error || "Failed to open portal";
+      alert(errorMsg);
+    } finally {
+      setIsManaging(false);
+    }
+  };
+
   if (loading) return (
     <div className="flex items-center justify-center h-screen text-neon-purple animate-pulse">
       <Spinner size="lg" />
@@ -279,12 +297,23 @@ export default function Dashboard() {
             </div>
 
             {profile?.plan === 'free' && (
-              <button 
+              <button
                 onClick={handleUpgrade}
                 disabled={isUpgrading}
                 className="ml-4 px-4 py-2 bg-gradient-to-r from-neon-purple to-neon-cyan text-white text-[10px] font-bold rounded-lg shadow-lg shadow-neon-purple/20 hover:scale-105 transition-all disabled:opacity-50"
               >
                 {isUpgrading ? "LOADING..." : "UPGRADE TO PRO"}
+              </button>
+            )}
+
+            {profile?.plan === 'pro' && (
+              <button
+                onClick={handleManageSubscription}
+                disabled={isManaging}
+                className="ml-4 px-4 py-2 bg-dark-bg border border-neon-cyan/30 text-neon-cyan text-[10px] font-bold rounded-lg hover:bg-neon-cyan/10 transition-all disabled:opacity-50 flex items-center gap-2"
+              >
+                <Settings className="w-3 h-3" />
+                {isManaging ? "LOADING..." : "MANAGE SUBSCRIPTION"}
               </button>
             )}
           </div>

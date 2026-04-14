@@ -13,6 +13,7 @@ CREATE TABLE public.users (
   email TEXT NOT NULL,
   api_key TEXT UNIQUE NOT NULL,
   stripe_customer_id TEXT UNIQUE,
+  stripe_subscription_id TEXT,
   plan TEXT DEFAULT 'free' CHECK (plan IN ('free', 'pro')),
   usage_count INTEGER DEFAULT 0,
   rate_limit INTEGER DEFAULT 10,
