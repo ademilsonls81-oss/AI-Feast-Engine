@@ -51,7 +51,7 @@ if (process.env.SENTRY_DSN) {
   console.log(">>> Sentry DSN not configured, error tracking disabled");
 }
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "sk_test_mock", { apiVersion: "2025-01-27.acacia" as any });
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "sk_test_mock", { apiVersion: "2026-03-25.dahlia" as any });
 
 // ==========================================
 // CACHE LAYER (Em memória)
@@ -114,27 +114,52 @@ app.use(globalIpLimit);
 app.post("/api/stripe-webhook", express.raw({ type: "application/json" }), async (req, res) => {
   const sig = req.headers["stripe-signature"];
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
-  if (!webhookSecret) { console.log("⚠️ Stripe Webhook Secret is not set."); return res.status(200).json({ received: true }); }
+
+  if (!webhookSecret) {
+    console.log("⚠️ Stripe Webhook Secret is not set.");
+    return res.status(200).json({ received: true });
+  }
 
   let event;
-  try { event = stripe.webhooks.constructEvent(req.body, sig as string, webhookSecret); }
-  catch (err: any) { console.error(`❌ Webhook Error: ${err.message}`); return res.status(400).send(`Webhook Error: ${err.message}`); }
+  try {
+    event = stripe.webhooks.constructEvent(req.body, sig as string, webhookSecret);
+    console.log(`📥 Webhook received: ${event.type} (ID: ${event.id})`);
+  } catch (err: any) {
+    console.error(`❌ Webhook Error: ${err.message}`);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
 
   switch (event.type) {
     case "checkout.session.completed": {
       const session = event.data.object as any;
-      console.log(`💰 Payment success: User ${session.client_reference_id}`);
-      await supabase.from("users").update({
+      const userId = session.client_reference_id;
+      console.log(`💰 Payment success: User ${userId}`);
+      console.log(`   Customer: ${session.customer}`);
+      console.log(`   Subscription: ${session.subscription}`);
+
+      if (!userId) {
+        console.error("❌ client_reference_id is missing in session!");
+        return res.json({ received: true, error: "missing client_reference_id" });
+      }
+
+      const { error } = await supabase.from("users").update({
         plan: "pro",
         stripe_customer_id: session.customer,
         stripe_subscription_id: session.subscription,
         rate_limit: 100
-      }).eq("id", session.client_reference_id);
+      }).eq("id", userId);
+
+      if (error) {
+        console.error(`❌ Failed to update user ${userId}: ${error.message}`);
+      } else {
+        console.log(`✅ User ${userId} upgraded to PRO successfully`);
+      }
       break;
     }
     case "customer.subscription.deleted": {
       const subscription = event.data.object as any;
-      const { data: u } = await supabase.from("users").select("id").eq("stripe_customer_id", subscription.customer).single();
+      const { data: u, error } = await supabase.from("users").select("id").eq("stripe_customer_id", subscription.customer).single();
+      if (error) { console.error(`❌ Error finding user: ${error.message}`); break; }
       if (u) {
         await supabase.from("users").update({ plan: "free", rate_limit: 10, stripe_subscription_id: null }).eq("id", u.id);
         console.log(`📉 User ${u.id} downgraded.`);
@@ -144,7 +169,8 @@ app.post("/api/stripe-webhook", express.raw({ type: "application/json" }), async
     case "invoice.payment_failed": {
       const invoice = event.data.object as any;
       const customerId = invoice.customer;
-      const { data: u } = await supabase.from("users").select("id").eq("stripe_customer_id", customerId).single();
+      const { data: u, error } = await supabase.from("users").select("id").eq("stripe_customer_id", customerId).single();
+      if (error) { console.error(`❌ Error finding user for failed invoice: ${error.message}`); break; }
       if (u) {
         await supabase.from("users").update({ plan: "free", rate_limit: 10, stripe_subscription_id: null }).eq("id", u.id);
         console.log(`💳 Payment failed: User ${u.id} downgraded to free.`);
