@@ -318,8 +318,13 @@ export default function Admin() {
 
   const handleAddFeed = async (e: React.FormEvent) => {
     e.preventDefault();
-    await api.post("/api/admin/feeds", newFeed);
-    setNewFeed({ url: "", name: "", category: "Tech" });
+    try {
+      await api.post("/api/admin/feeds", newFeed);
+      setNewFeed({ url: "", name: "", category: "Tech" });
+    } catch (err: any) {
+      const errorMsg = err.response?.data?.error || err.message || "Erro desconhecido";
+      alert(`❌ Erro ao adicionar feed: ${errorMsg}`);
+    }
   };
 
   if (!isAdmin) return <div className="p-12 text-center text-red-400">Access Denied. Admin only.</div>;

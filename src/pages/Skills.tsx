@@ -81,16 +81,40 @@ export default function Skills() {
   }
 
   const copyCommand = (cmd: string) => {
-    navigator.clipboard.writeText(cmd);
-    setCopiedCmd(cmd);
-    setTimeout(() => setCopiedCmd(""), 2000);
+    try {
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(cmd);
+        setCopiedCmd(cmd);
+        setTimeout(() => setCopiedCmd(""), 2000);
+      } else {
+        // Fallback para contextos nao-seguros (HTTP sem localhost)
+        const textarea = document.createElement("textarea");
+        textarea.value = cmd;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textarea);
+        setCopiedCmd(cmd);
+        setTimeout(() => setCopiedCmd(""), 2000);
+      }
+    } catch {
+      console.warn("Failed to copy command to clipboard");
+    }
+  };
+
+  const safeStringify = (obj: any): string => {
+    try {
+      return JSON.stringify(obj, null, 2);
+    } catch {
+      return "// Unable to display: circular reference or invalid structure";
+    }
   };
 
   const filteredSkills = skills.filter(s => {
     const matchesCategory = filter === "All" || s.category === filter;
     const matchesSearch = !search ||
-      s.name.toLowerCase().includes(search.toLowerCase()) ||
-      s.description.toLowerCase().includes(search.toLowerCase()) ||
+      s.name?.toLowerCase().includes(search.toLowerCase()) ||
+      s.description?.toLowerCase().includes(search.toLowerCase()) ||
       (s.tags || []).some(t => t.toLowerCase().includes(search.toLowerCase()));
     return matchesCategory && matchesSearch;
   });
@@ -333,13 +357,13 @@ export default function Skills() {
                   {selectedSkill.input_schema && (
                     <div>
                       <h3 className="text-sm font-bold text-gray-300 mb-2 flex items-center gap-2"><ArrowRight className="w-4 h-4 text-green-400" /> Input Schema</h3>
-                      <pre className="p-3 bg-black/40 border border-white/5 rounded-xl text-xs text-gray-300 font-mono overflow-x-auto">{JSON.stringify(selectedSkill.input_schema, null, 2)}</pre>
+                      <pre className="p-3 bg-black/40 border border-white/5 rounded-xl text-xs text-gray-300 font-mono overflow-x-auto">{safeStringify(selectedSkill.input_schema)}</pre>
                     </div>
                   )}
                   {selectedSkill.output_schema && (
                     <div>
                       <h3 className="text-sm font-bold text-gray-300 mb-2 flex items-center gap-2"><ArrowRight className="w-4 h-4 text-neon-cyan" /> Output Schema</h3>
-                      <pre className="p-3 bg-black/40 border border-white/5 rounded-xl text-xs text-gray-300 font-mono overflow-x-auto">{JSON.stringify(selectedSkill.output_schema, null, 2)}</pre>
+                      <pre className="p-3 bg-black/40 border border-white/5 rounded-xl text-xs text-gray-300 font-mono overflow-x-auto">{safeStringify(selectedSkill.output_schema)}</pre>
                     </div>
                   )}
 
