@@ -246,12 +246,13 @@ app.post("/api/create-checkout-session", async (req, res) => {
   if (!userId || !email) return res.status(400).json({ error: "Missing data" });
   if (process.env.STRIPE_ENABLED !== "true") return res.status(503).json({ error: "Stripe not enabled" });
   try {
+    const baseUrl = req.headers.origin || process.env.APP_URL || "https://www.aifeastengine.com";
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ["card"],
       line_items: [{ price: process.env.STRIPE_PRO_PRICE_ID, quantity: 1 }],
       mode: "subscription",
-      success_url: `${req.headers.origin}/dashboard?success=true`,
-      cancel_url: `${req.headers.origin}/dashboard?canceled=true`,
+      success_url: `${baseUrl}/dashboard?success=true`,
+      cancel_url: `${baseUrl}/dashboard?canceled=true`,
       customer_email: email,
       client_reference_id: userId,
       metadata: { userId }
@@ -271,9 +272,10 @@ app.post("/api/create-portal-session", async (req, res) => {
     const { data: user, error } = await supabase.from("users").select("stripe_customer_id, plan").eq("id", userId).single();
     if (error || !user) return res.status(404).json({ error: "User not found" });
     if (user.plan !== "pro" || !user.stripe_customer_id) return res.status(400).json({ error: "Only Pro users can manage subscriptions" });
+    const baseUrl = req.headers.origin || process.env.APP_URL || "https://www.aifeastengine.com";
     const portalSession = await stripe.billingPortal.sessions.create({
       customer: user.stripe_customer_id,
-      return_url: `${req.headers.origin}/dashboard`
+      return_url: `${baseUrl}/dashboard`
     });
     res.json({ url: portalSession.url });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
