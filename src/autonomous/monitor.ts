@@ -17,6 +17,8 @@
 
 import cron from "node-cron";
 import { supabase } from "../lib/supabase.js";
+import { runDiagnosis } from "./diagnostician.js";
+import type { SystemError } from "./diagnostician.js";
 
 // ==========================================
 // CONFIGURATION
@@ -25,22 +27,51 @@ const ERROR_THRESHOLD = 5; // errors per hour to trigger diagnosis
 const CRON_SCHEDULE = "0 * * * *"; // every hour at minute 0
 
 // ==========================================
-// FASE 3 PLACEHOLDER (to be implemented)
+// FASE 3: AI DIAGNOSIS
 // ==========================================
 /**
- * Run autonomous diagnosis.
- * This function will be implemented in Fase 3.
- * For now, it's a placeholder that logs the intent.
+ * Run autonomous diagnosis using AI (Groq).
+ * Fetches recent errors and calls the diagnostician.
  */
-async function runDiagnosis() {
+async function runDiagnosisWithAI() {
   console.log("🔍 [Diagnosis] Starting autonomous diagnosis...");
-  // TODO Fase 3:
-  // 1. Analyze recent errors by type and source
-  // 2. Check system health (API, DB, Stripe, etc.)
-  // 3. Generate diagnosis report
-  // 4. Suggest or apply auto-fixes
-  // 5. Send alert to admin (email, webhook, etc.)
-  console.log("🔍 [Diagnosis] Placeholder — Fase 3 not yet implemented.");
+
+  try {
+    // Fetch recent errors (last hour, max 5)
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+
+    const { data: errors, error: fetchError } = await supabase
+      .from("system_errors")
+      .select("id, error_type, source, message, stack_trace, severity, endpoint, http_status, created_at")
+      .gte("created_at", oneHourAgo)
+      .order("created_at", { ascending: false })
+      .limit(5);
+
+    if (fetchError) {
+      console.error(`❌ [Diagnosis] Failed to fetch errors: ${fetchError.message}`);
+      return;
+    }
+
+    if (!errors || errors.length === 0) {
+      console.log("🔍 [Diagnosis] No errors to analyze.");
+      return;
+    }
+
+    console.log(`🔍 [Diagnosis] Analyzing ${errors.length} error(s)...`);
+
+    // Call AI diagnostician
+    const result = await runDiagnosis(errors as SystemError[]);
+
+    console.log(`✅ [Diagnosis] Cause: ${result.cause.substring(0, 120)}...`);
+    console.log(`✅ [Diagnosis] Fix: ${result.fix.substring(0, 120)}...`);
+    console.log(`✅ [Diagnosis] Confidence: ${result.confidence}`);
+    console.log(`✅ [Diagnosis] Model: ${result.model_used}`);
+    if (result.affected_files.length > 0) {
+      console.log(`✅ [Diagnosis] Affected files: ${result.affected_files.join(", ")}`);
+    }
+  } catch (err: any) {
+    console.error(`❌ [Diagnosis] Unexpected error: ${err.message}`);
+  }
 }
 
 // ==========================================
@@ -72,8 +103,8 @@ async function checkErrorThreshold() {
       console.log(`🚨 [Monitor] ${errorCount} errors detected in the last hour (threshold: ${ERROR_THRESHOLD})!`);
       console.log("🚨 [Monitor] Triggering autonomous diagnosis...");
 
-      // Trigger diagnosis (Fase 3 placeholder)
-      await runDiagnosis();
+      // Trigger AI diagnosis (Fase 3)
+      await runDiagnosisWithAI();
     } else {
       console.log(`✅ [Monitor] ${errorCount} errors in the last hour — below threshold, ignoring.`);
     }
