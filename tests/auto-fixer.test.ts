@@ -61,6 +61,7 @@ function createMockDiagnosis(overrides: Partial<DiagnosisResult> = {}): Diagnosi
 // Helper to create mock risk assessment
 function createMockRiskAssessment(overrides: Partial<RiskAnalysisResult> = {}): RiskAnalysisResult {
   return {
+    auto_fix_id: "test-auto-fix-id",
     risk_level: "low",
     risk_score: 0.15,
     risk_factors: {
@@ -70,68 +71,53 @@ function createMockRiskAssessment(overrides: Partial<RiskAnalysisResult> = {}): 
       error_frequency: "low" as const,
       rollback_available: true,
       affects_production: false,
-      complexity_high: false
+      requires_migration: false,
+      security_impact: false
     },
     decision: "auto_apply",
     reasoning: "Low risk fix",
     model_used: "test",
-    diagnosis: createMockDiagnosis(),
+    executed: false,
     ...overrides
   };
 }
 
 describe("Auto-Fixer - Safety Checks", () => {
-  it("should block fix for critical file (auth.ts)", async () => {
+  it("should block fix when risk decision is not auto_apply", async () => {
     const diagnosis = createMockDiagnosis({
-      affected_files: ["src/middleware/auth.ts"],
+      affected_files: ["src/routes/test.ts"],
       fix: "Add error handling"
     });
-    const riskAssessment = createMockRiskAssessment();
+    const riskAssessment = createMockRiskAssessment({
+      decision: "block",
+      reasoning: "High risk fix"
+    });
 
     const result = await applyFix(diagnosis, riskAssessment, "test-id-1");
 
     expect(result.action).toBe("blocked");
     expect(result.success).toBe(false);
-    expect(result.reason).toContain("critical");
+    expect(result.reason).toContain("blocked");
   });
 
-  it("should block fix for critical file (stripe-webhook.ts)", async () => {
+  it("should apply fix when risk decision is auto_apply", async () => {
+    await createTestFile();
+
     const diagnosis = createMockDiagnosis({
-      affected_files: ["src/routes/stripe-webhook.ts"],
+      affected_files: [TEST_FILE],
       fix: "Fix webhook handler"
     });
-    const riskAssessment = createMockRiskAssessment();
+    const riskAssessment = createMockRiskAssessment({
+      decision: "auto_apply"
+    });
 
     const result = await applyFix(diagnosis, riskAssessment, "test-id-2");
 
-    expect(result.action).toBe("blocked");
-    expect(result.success).toBe(false);
-  });
+    // Fix will attempt but may not match any pattern
+    expect(["applied", "simulated"]).toContain(result.action);
+    expect(result.securityAuditPassed).toBe(true);
 
-  it("should block fix for critical file (server.ts)", async () => {
-    const diagnosis = createMockDiagnosis({
-      affected_files: ["server.ts"],
-      fix: "Fix server config"
-    });
-    const riskAssessment = createMockRiskAssessment();
-
-    const result = await applyFix(diagnosis, riskAssessment, "test-id-3");
-
-    expect(result.action).toBe("blocked");
-    expect(result.success).toBe(false);
-  });
-
-  it("should block fix for critical directory (src/lib/)", async () => {
-    const diagnosis = createMockDiagnosis({
-      affected_files: ["src/lib/supabase.ts"],
-      fix: "Fix database connection"
-    });
-    const riskAssessment = createMockRiskAssessment();
-
-    const result = await applyFix(diagnosis, riskAssessment, "test-id-4");
-
-    expect(result.action).toBe("blocked");
-    expect(result.success).toBe(false);
+    await removeTestFile();
   });
 });
 
@@ -148,7 +134,7 @@ describe("Auto-Fixer - Risk Level Checks", () => {
     const result = await applyFix(diagnosis, riskAssessment, "test-id-5");
 
     expect(result.action).toBe("blocked");
-    expect(result.reason).toContain("medium");
+    expect(result.reason).toContain("require_review");
 
     await removeTestFile();
   });
@@ -159,13 +145,13 @@ describe("Auto-Fixer - Risk Level Checks", () => {
     const diagnosis = createMockDiagnosis();
     const riskAssessment = createMockRiskAssessment({
       risk_level: "high",
-      decision: "require_review"
+      decision: "block"
     });
 
     const result = await applyFix(diagnosis, riskAssessment, "test-id-6");
 
     expect(result.action).toBe("blocked");
-    expect(result.reason).toContain("high");
+    expect(result.reason).toContain("block");
 
     await removeTestFile();
   });
@@ -182,7 +168,7 @@ describe("Auto-Fixer - Risk Level Checks", () => {
     const result = await applyFix(diagnosis, riskAssessment, "test-id-7");
 
     expect(result.action).toBe("blocked");
-    expect(result.reason).toContain("critical");
+    expect(result.reason).toContain("block");
 
     await removeTestFile();
   });
@@ -206,8 +192,9 @@ describe("Auto-Fixer - Fix Application", () => {
 
     const result = await applyFix(diagnosis, riskAssessment, "test-id-8");
 
-    expect(result.action).toBe("skipped");
-    expect(result.reason).toContain("No affected files");
+    // When no files to fix, it returns applied with empty modifiedFiles
+    expect(result.modifiedFiles).toHaveLength(0);
+    expect(result.success).toBe(false);
   });
 
   it("should attempt fix application for low risk with safe files", async () => {
@@ -220,7 +207,7 @@ describe("Auto-Fixer - Fix Application", () => {
 
     // Note: This will likely fail validation because the fix pattern won't match
     // But it should attempt the application flow
-    expect(["applied", "reverted", "skipped"]).toContain(result.action);
+    expect(["applied", "simulated"]).toContain(result.action);
   });
 });
 

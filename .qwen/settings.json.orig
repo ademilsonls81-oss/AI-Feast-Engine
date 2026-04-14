@@ -1,7 +1,15 @@
 {
-  "permissions": {
-    "allow": [
-      "Bash(git pull *)"
-    ]
-  }
+    "openai":  {
+                   "base_url":  "https://openrouter.ai/api/v1",
+                   "api_key":  "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",
+                   "models":  [
+                                  "qwen/qwen3-coder:free"
+                              ]
+               },
+    "permissions":  {
+                        "allow":  [
+                                      "Bash(git pull *)"
+                                  ]
+                    },
+    "model_provider":  "openai"
 }

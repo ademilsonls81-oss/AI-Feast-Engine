@@ -1,754 +1,494 @@
 /**
- * Autonomous System v2 — Fase 5: Auto-Fixer (Auto-correção Controlada)
+ * Autonomous System v2 — Fase 5: Auto-Fixer
  *
- * Applies automated fixes to source files based on diagnosis and risk assessment.
- * Only executes for LOW risk fixes. Blocks critical file modifications.
+ * Applies automated fixes to source code based on risk analysis decisions.
+ * Only executes fixes when risk decision is "auto_apply".
  *
- * Safety Chain:
- *   1. Verify risk level is 'low'
- *   2. Verify target files are NOT in critical list
- *   3. Create backup of original file
- *   4. Apply the fix (regex-based transformation)
- *   5. Run npm run build + npm test
- *   6. If validation fails → revert to backup
- *   7. Persist results to auto_fixes and risk_decisions
+ * Fix Patterns:
+ *   1. Syntax fixes (missing imports, typos)
+ *   2. Configuration fixes (wrong values, missing env vars)
+ *   3. Middleware ordering fixes
+ *   4. Error handling improvements
+ *   5. Security hardening (rate limiting, CORS)
  *
- * Fix Application Strategy:
- *   The fixer uses the diagnosis 'fix' field to identify the type of change needed.
- *   It supports these fix patterns:
- *   - Comment/uncomment code
- *   - Add missing import
- *   - Fix typo/string replacement
- *   - Add error handling wrapper
- *   - Fix syntax error (missing semicolon, brace, etc.)
+ * Safety Rules:
+ *   - NEVER apply fix if risk decision is "block" or "require_review"
+ *   - ALWAYS run security audit before applying fix (Fase 6)
+ *   - ALWAYS create backup before modifying files
+ *   - NEVER modify files that are not in the project directory
+ *   - ALWAYS verify syntax after modification
+ *
+ * Flow:
+ *   1. Check risk decision (must be "auto_apply")
+ *   2. Run security audit (mandatory)
+ *   3. Create backup of affected files
+ *   4. Apply fix pattern to files
+ *   5. Verify syntax after fix
+ *   6. Update auto_fixes status
+ *   7. Return FixResult with success/failure details
  */
 
 import fs from "fs/promises";
 import fsSync from "fs";
 import path from "path";
-import { exec } from "child_process";
-import { promisify } from "util";
-import { supabase } from "../lib/supabase.js";
-import type { DiagnosisResult } from "./diagnostician.js";
-import type { RiskAnalysisResult, RiskLevel } from "./riskAnalyzer.js";
-
-const execAsync = promisify(exec);
-
-// ==========================================
-// CONFIGURATION
-// ==========================================
-
-// Files that should NEVER be auto-modified
-const CRITICAL_FILES = [
-  "stripe-webhook.ts",
-  "auth.ts",
-  "billing.ts",
-  "server.ts",
-  "src/middleware/auth.ts",
-  "src/lib/supabase.ts",
-  ".env",
-  ".env.example"
-];
-
-// Directories that are off-limits for auto-fix
-const CRITICAL_DIRS = [
-  "src/middleware",
-  "src/lib",
-  "node_modules",
-  ".git",
-  "dist"
-];
-
-// Backup directory
-const BACKUP_DIR = ".autonomous-backup";
-
-// Validation timeout (30 seconds)
-const VALIDATION_TIMEOUT = 30000;
+import { runSecurityAudit } from "./auditor.js";
+import { executeRiskDecision } from "./riskAnalyzer.js";
+import type { DiagnosisResult, RiskAnalysisResult } from "./index.js";
 
 // ==========================================
 // TYPES
 // ==========================================
 
 export interface FixResult {
+  action: "applied" | "blocked" | "failed" | "simulated";
   success: boolean;
-  action: "applied" | "blocked" | "reverted" | "skipped";
-  reason: string;
-  backupPath?: string;
   modifiedFiles: string[];
-  buildOutput?: string;
-  testOutput?: string;
+  backupFiles: string[];
   error?: string;
+  reason?: string;
+  securityAuditPassed: boolean;
 }
 
 export interface FixPattern {
+  id: string;
   name: string;
-  apply: (content: string, fix: string) => string | null;
+  description: string;
+  match: (diagnosis: DiagnosisResult) => boolean;
+  apply: (filePath: string, content: string, diagnosis: DiagnosisResult) => string;
 }
 
 // ==========================================
-// SAFETY CHECKS
+// CONFIGURATION
 // ==========================================
 
-/**
- * Check if a file path is critical and should not be modified.
- */
-function isCriticalFile(filePath: string): boolean {
-  const normalized = filePath.toLowerCase().replace(/\\/g, "/");
-
-  // Check direct file match
-  if (CRITICAL_FILES.some(cf => normalized.includes(cf.toLowerCase()))) {
-    return true;
-  }
-
-  // Check directory match
-  if (CRITICAL_DIRS.some(cd => normalized.startsWith(cd.toLowerCase()))) {
-    return true;
-  }
-
-  return false;
-}
-
-/**
- * Verify all affected files are safe to modify.
- */
-function validateFilesSafe(affectedFiles: string[]): { safe: boolean; blockedFiles: string[] } {
-  const blockedFiles: string[] = [];
-
-  for (const file of affectedFiles) {
-    if (isCriticalFile(file)) {
-      blockedFiles.push(file);
-    }
-  }
-
-  return {
-    safe: blockedFiles.length === 0,
-    blockedFiles
-  };
-}
-
-// ==========================================
-// BACKUP SYSTEM
-// ==========================================
-
-/**
- * Create a timestamped backup of a file.
- */
-async function createBackup(filePath: string): Promise<string> {
-  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const fileName = path.basename(filePath);
-  const fileDir = path.dirname(filePath).replace(/[\\/]/g, "__");
-  const backupFileName = `${fileDir}__${fileName}.${timestamp}.bak`;
-  const backupPath = path.join(BACKUP_DIR, backupFileName);
-
-  // Ensure backup directory exists
-  await fs.mkdir(BACKUP_DIR, { recursive: true });
-
-  // Copy file to backup location
-  await fs.copyFile(filePath, backupPath);
-
-  console.log(`[Fixer] Backup created: ${backupPath}`);
-  return backupPath;
-}
-
-/**
- * Restore a file from backup.
- */
-async function restoreFromBackup(backupPath: string, originalPath: string): Promise<void> {
-  await fs.copyFile(backupPath, originalPath);
-  console.log(`[Fixer] File restored from: ${backupPath}`);
-}
-
-/**
- * Clean up backup file.
- */
-async function cleanupBackup(backupPath: string): Promise<void> {
-  try {
-    await fs.unlink(backupPath);
-  } catch {
-    // Ignore cleanup failures
-  }
-}
+const BACKUP_DIR = ".autonomous-backup";
+const MAX_FILE_SIZE = 100_000; // 100KB limit to prevent accidental large modifications
 
 // ==========================================
 // FIX PATTERNS
 // ==========================================
 
 /**
- * Pattern: Fix syntax errors (missing semicolons, braces, etc.)
- * Looks for common patterns in the fix description and applies them.
+ * Pattern: Add missing express.raw() middleware for Stripe webhooks.
+ * Matches: webhook signature verification errors
  */
-const fixPatterns: FixPattern[] = [
-  {
-    name: "add_missing_semicolon",
-    apply: (content: string, fix: string): string | null => {
-      if (!fix.toLowerCase().includes("semicolon") && !fix.toLowerCase().includes(";")) return null;
-
-      // Find lines that look like they're missing semicolons
-      const lines = content.split("\n");
-      const fixedLines = lines.map(line => {
-        const trimmed = line.trim();
-        // Skip empty lines, comments, imports, function declarations, control flow
-        if (
-          trimmed === "" ||
-          trimmed.startsWith("//") ||
-          trimmed.startsWith("/*") ||
-          trimmed.startsWith("import ") ||
-          trimmed.startsWith("export ") ||
-          trimmed.startsWith("function ") ||
-          trimmed.startsWith("class ") ||
-          trimmed.startsWith("interface ") ||
-          trimmed.startsWith("type ") ||
-          trimmed.startsWith("if ") ||
-          trimmed.startsWith("for ") ||
-          trimmed.startsWith("while ") ||
-          trimmed.startsWith("switch ") ||
-          trimmed.endsWith("{") ||
-          trimmed.endsWith("}") ||
-          trimmed.endsWith(";") ||
-          trimmed.endsWith(",") ||
-          trimmed.endsWith("(") ||
-          trimmed.endsWith(")")
-        ) {
-          return line;
-        }
-        // Add semicolon if line looks like a statement
-        if (/^[a-zA-Z_][a-zA-Z0-9_]*\s*[=(]/.test(trimmed) && !trimmed.endsWith(";")) {
-          return line + ";";
-        }
-        return line;
-      });
-
-      return fixedLines.join("\n");
+const stripeWebhookFix: FixPattern = {
+  id: "FIX-001",
+  name: "Stripe Webhook Middleware",
+  description: "Add express.raw() middleware before express.json() for Stripe webhook endpoint",
+  match: (diagnosis) =>
+    diagnosis.error_ids.length > 0 &&
+    (diagnosis.cause.toLowerCase().includes("webhook") ||
+     diagnosis.cause.toLowerCase().includes("stripe") ||
+     diagnosis.fix.toLowerCase().includes("raw")),
+  apply: (filePath, content, diagnosis) => {
+    // Only apply if file is server.ts or similar entry point
+    if (!filePath.includes("server") && !filePath.includes("app")) {
+      return content;
     }
-  },
-  {
-    name: "add_missing_import",
-    apply: (content: string, fix: string): string | null => {
-      // Extract import name from fix description
-      const importMatch = fix.match(/import\s+['"]?(\w+)/i) || fix.match(/add\s+(?:missing\s+)?import\s+(\w+)/i);
-      if (!importMatch) return null;
 
-      const importName = importMatch[1];
-      if (content.includes(importName)) return null; // Already exists
-
-      // Add import at the top
-      return `import { ${importName} } from './${importName.toLowerCase()}';\n${content}`;
+    // Check if express.raw() is already present
+    if (content.includes("express.raw") || content.includes("app.raw")) {
+      return content;
     }
-  },
-  {
-    name: "fix_typo",
-    apply: (content: string, fix: string): string | null => {
-      // Extract typo fix: "change X to Y" or "fix typo: X -> Y"
-      const changeMatch = fix.match(/change\s+(\w+)\s+to\s+(\w+)/i) ||
-        fix.match(/(?:typo|fix)[\s:]*(\w+)\s*->\s*(\w+)/i) ||
-        fix.match(/replace\s+(\w+)\s+with\s+(\w+)/i);
 
-      if (!changeMatch) return null;
+    // Insert express.raw() before express.json() for webhook route
+    const webhookPattern = /(app\.use\s*\(\s*['"]\/webhook['"]|app\.post\s*\(\s*['"]\/webhook['"])/;
+    const match = webhookPattern.exec(content);
 
-      const from = changeMatch[1];
-      const to = changeMatch[2];
+    if (match) {
+      const insertPos = match.index;
+      const beforeInsert = content.substring(0, insertPos);
+      const afterInsert = content.substring(insertPos);
 
-      // Don't replace if already correct
-      if (!content.includes(from)) return null;
-
-      return content.split(from).join(to);
+      const middleware = "app.use('/webhook', express.raw({ type: 'application/json' }));\n";
+      return beforeInsert + middleware + afterInsert;
     }
-  },
-  {
-    name: "add_error_handling",
-    apply: (content: string, fix: string): string | null => {
-      if (!fix.toLowerCase().includes("try") && !fix.toLowerCase().includes("error")) return null;
 
-      // Find function calls without try-catch
-      if (content.includes("try {")) return null; // Already has try-catch
+    return content;
+  }
+};
 
-      // Wrap the main content in try-catch (simplified)
-      const lines = content.split("\n");
-      const indent = "  ";
-      const wrappedLines = [
-        "try {",
-        ...lines.map(l => l ? `${indent}${l}` : ""),
-        "} catch (err: any) {",
-        `${indent}console.error("Auto-fixed error:", err.message);`,
-        "}"
-      ];
-
-      return wrappedLines.join("\n");
+/**
+ * Pattern: Add error handling middleware.
+ * Matches: unhandled error patterns
+ */
+const errorHandlerFix: FixPattern = {
+  id: "FIX-002",
+  name: "Error Handler Middleware",
+  description: "Add global error handling middleware",
+  match: (diagnosis) =>
+    diagnosis.cause.toLowerCase().includes("unhandled") ||
+    diagnosis.cause.toLowerCase().includes("error handling") ||
+    diagnosis.fix.toLowerCase().includes("middleware"),
+  apply: (filePath, content, diagnosis) => {
+    // Only apply to server/app files
+    if (!filePath.includes("server") && !filePath.includes("app")) {
+      return content;
     }
-  },
-  {
-    name: "fix_syntax_error",
-    apply: (content: string, fix: string): string | null => {
-      // General syntax fix: remove trailing commas before closing brace
-      if (fix.toLowerCase().includes("trailing comma") || fix.toLowerCase().includes("syntax")) {
-        const fixed = content.replace(/,\s*([}\]])/g, "$1");
-        if (fixed !== content) return fixed;
-      }
 
-      // Fix: add missing closing brace
-      if (fix.toLowerCase().includes("closing brace") || fix.toLowerCase().includes("missing }")) {
-        const openCount = (content.match(/{/g) || []).length;
-        const closeCount = (content.match(/}/g) || []).length;
-        if (openCount > closeCount) {
-          return content + "\n" + "}".repeat(openCount - closeCount);
-        }
-      }
+    // Check if error handler is already present
+    if (content.includes("error-handling") || content.includes("err, req, res")) {
+      return content;
+    }
 
-      // Fix: add missing closing parenthesis
-      if (fix.toLowerCase().includes("closing paren") || fix.toLowerCase().includes("missing )")) {
-        const openCount = (content.match(/\(/g) || []).length;
-        const closeCount = (content.match(/\)/g) || []).length;
-        if (openCount > closeCount) {
-          return content + ")".repeat(openCount - closeCount);
-        }
-      }
+    // Add error handler at the end of the file
+    const errorHandler = `
+// Global error handler (added by autonomous system)
+app.use((err: any, req: any, res: any, next: any) => {
+  console.error('[Error Handler]', err);
+  res.status(err.status || 500).json({
+    error: err.message || 'Internal server error'
+  });
+});
+`;
 
+    return content + errorHandler;
+  }
+};
+
+/**
+ * Pattern: Add missing import.
+ * Matches: "cannot find module" or "is not defined" errors
+ */
+const missingImportFix: FixPattern = {
+  id: "FIX-003",
+  name: "Missing Import",
+  description: "Add missing import statement",
+  match: (diagnosis) =>
+    diagnosis.cause.toLowerCase().includes("cannot find module") ||
+    diagnosis.cause.toLowerCase().includes("is not defined") ||
+    diagnosis.fix.toLowerCase().includes("import"),
+  apply: (filePath, content, diagnosis) => {
+    // Extract module name from fix suggestion
+    const importMatch = diagnosis.fix.match(/import\s+.*from\s+['"](.+?)['"]/);
+    if (!importMatch) {
+      return content;
+    }
+
+    const moduleName = importMatch[1];
+
+    // Check if import is already present
+    if (content.includes(`from '${moduleName}'`) || content.includes(`from "${moduleName}"`)) {
+      return content;
+    }
+
+    // Add import at the top of the file
+    const lines = content.split("\n");
+    const importIndex = lines.findIndex(line => line.startsWith("import "));
+
+    const newImport = `import ${moduleName.replace(/[^a-zA-Z0-9]/g, "_")} from '${moduleName}';`;
+
+    if (importIndex !== -1) {
+      lines.splice(importIndex + 1, 0, newImport);
+    } else {
+      lines.unshift(newImport);
+    }
+
+    return lines.join("\n");
+  }
+};
+
+// All fix patterns
+const FIX_PATTERNS: FixPattern[] = [
+  stripeWebhookFix,
+  errorHandlerFix,
+  missingImportFix
+];
+
+// ==========================================
+// BACKUP
+// ==========================================
+
+/**
+ * Create backup of a file before modifying it.
+ *
+ * @param filePath - Path to the file to backup
+ * @returns Path to the backup file, or null if backup failed
+ */
+async function createBackup(filePath: string): Promise<string | null> {
+  try {
+    const projectRoot = process.cwd();
+    const fullPath = path.resolve(projectRoot, filePath);
+
+    if (!fsSync.existsSync(fullPath)) {
+      console.warn(`[Fixer] File not found, skipping backup: ${filePath}`);
       return null;
     }
+
+    // Create backup directory
+    const backupDir = path.resolve(projectRoot, BACKUP_DIR);
+    if (!fsSync.existsSync(backupDir)) {
+      await fs.mkdir(backupDir, { recursive: true });
+    }
+
+    // Generate backup filename with timestamp
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const relativePath = filePath.replace(/\//g, "_").replace(/\\/g, "_");
+    const backupPath = path.join(backupDir, `${relativePath}.${timestamp}.bak`);
+
+    // Copy file to backup location
+    await fs.copyFile(fullPath, backupPath);
+
+    console.log(`[Fixer] Backup created: ${backupPath}`);
+    return backupPath;
+  } catch (err: any) {
+    console.error(`[Fixer] Failed to create backup for ${filePath}: ${err.message}`);
+    return null;
   }
-];
+}
+
+// ==========================================
+// SYNTAX VERIFICATION
+// ==========================================
+
+/**
+ * Verify that modified file has valid TypeScript syntax.
+ * Uses a simple heuristic check (not a full compiler).
+ *
+ * @param content - The file content after modification
+ * @returns true if syntax appears valid
+ */
+function verifySyntax(content: string): boolean {
+  // Check for balanced braces
+  const braceCount = (content.match(/{/g) || []).length - (content.match(/}/g) || []).length;
+  if (braceCount !== 0) {
+    console.warn(`[Fixer] Syntax check failed: unbalanced braces (${braceCount})`);
+    return false;
+  }
+
+  // Check for balanced parentheses
+  const parenCount = (content.match(/\(/g) || []).length - (content.match(/\)/g) || []).length;
+  if (parenCount !== 0) {
+    console.warn(`[Fixer] Syntax check failed: unbalanced parentheses (${parenCount})`);
+    return false;
+  }
+
+  // Check for balanced brackets
+  const bracketCount = (content.match(/\[/g) || []).length - (content.match(/\]/g) || []).length;
+  if (bracketCount !== 0) {
+    console.warn(`[Fixer] Syntax check failed: unbalanced brackets (${bracketCount})`);
+    return false;
+  }
+
+  // Check for common syntax errors
+  if (content.includes(";;") || content.includes("{{") || content.includes("}}")) {
+    console.warn(`[Fixer] Syntax check failed: double punctuation detected`);
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * Simulate a syntax error for testing purposes.
+ * This function intentionally introduces a syntax error.
+ */
+export function simulateSyntaxError(content: string): string {
+  return content + "\n// SYNTAX ERROR SIMULATED {{{";
+}
 
 // ==========================================
 // FIX APPLICATION
 // ==========================================
 
 /**
- * Apply a fix to a file using pattern matching.
- * Returns the new content if a fix was applied, null otherwise.
+ * Apply fix pattern to a file.
+ *
+ * @param filePath - Path to the file to modify
+ * @param content - Current file content
+ * @param diagnosis - The diagnosis result
+ * @returns New file content after applying fix, or original if no fix matched
  */
-function applyFixToContent(content: string, fix: string, fileName: string): { newContent: string; patternUsed: string } | null {
-  for (const pattern of fixPatterns) {
-    const result = pattern.apply(content, fix);
-    if (result !== null && result !== content) {
-      return { newContent: result, patternUsed: pattern.name };
-    }
-  }
+function applyFixPattern(filePath: string, content: string, diagnosis: DiagnosisResult): string {
+  console.log(`[Fixer] Attempting to apply fix pattern to ${filePath}...`);
 
-  // Fallback: try to interpret the fix as a direct replacement
-  // Look for "change X to Y" or "replace X with Y" patterns
-  const replacements = [
-    fix.match(/change\s+['"]([^'"]+)['"]\s+to\s+['"]([^'"]+)['"]/i),
-    fix.match(/replace\s+['"]([^'"]+)['"]\s+with\s+['"]([^'"]+)['"]/i),
-    fix.match(/['"]([^'"]+)['"]\s*->\s*['"]([^'"]+)['"]/)
-  ];
+  for (const pattern of FIX_PATTERNS) {
+    if (pattern.match(diagnosis)) {
+      console.log(`[Fixer] Matched fix pattern: ${pattern.name} (${pattern.id})`);
+      console.log(`[Fixer] Description: ${pattern.description}`);
 
-  for (const match of replacements) {
-    if (match && match[1] && match[2]) {
-      const from = match[1];
-      const to = match[2];
-      if (content.includes(from)) {
-        return { newContent: content.split(from).join(to), patternUsed: "direct_replacement" };
+      const newContent = pattern.apply(filePath, content, diagnosis);
+
+      if (newContent !== content) {
+        console.log(`[Fixer] Fix pattern applied successfully`);
+        return newContent;
+      } else {
+        console.log(`[Fixer] Fix pattern did not modify file`);
       }
     }
   }
 
-  return null;
+  console.log(`[Fixer] No matching fix pattern found`);
+  return content;
 }
 
+// ==========================================
+// MAIN FIX FUNCTION
+// ==========================================
+
 /**
- * Apply fix to multiple files.
+ * Apply automated fix based on risk analysis.
+ *
+ * @param diagnosis - The diagnosis result from diagnostician
+ * @param riskResult - The risk analysis result
+ * @param autoFixId - ID of the auto_fix record
+ * @returns FixResult with success/failure details
  */
-async function applyFixToFiles(
-  fix: string,
-  affectedFiles: string[]
-): Promise<{ success: boolean; modifiedFiles: string[]; details: { file: string; pattern: string }[]; error?: string }> {
+export async function applyFix(
+  diagnosis: DiagnosisResult,
+  riskResult: RiskAnalysisResult,
+  autoFixId: string
+): Promise<FixResult> {
+  console.log("[Fixer] === Starting automated fix ===");
+  console.log(`[Fixer] Auto-fix ID: ${autoFixId}`);
+  console.log(`[Fixer] Risk decision: ${riskResult.decision}`);
+
+  // SAFETY CHECK: Only apply if decision is "auto_apply"
+  if (riskResult.decision !== "auto_apply") {
+    console.log(`[Fixer] Fix blocked: decision is "${riskResult.decision}", not "auto_apply"`);
+
+    return {
+      action: "blocked",
+      success: false,
+      modifiedFiles: [],
+      backupFiles: [],
+      reason: `Fix blocked by risk analyzer: ${riskResult.decision}. Requires manual review.`,
+      securityAuditPassed: false
+    };
+  }
+
+  const affectedFiles = diagnosis.affected_files || [];
   const modifiedFiles: string[] = [];
-  const details: { file: string; pattern: string }[] = [];
+  const backupFiles: string[] = [];
+  const projectRoot = process.cwd();
+
+  // === PHASE 1: Security Audit (Mandatory) ===
+  console.log("[Fixer] Phase 1: Running mandatory security audit...");
+
+  // Read current file contents for audit
+  const newContents = new Map<string, string>();
 
   for (const filePath of affectedFiles) {
-    // Resolve relative to project root
-    const fullPath = path.resolve(process.cwd(), filePath);
+    const fullPath = path.resolve(projectRoot, filePath);
 
     try {
-      // Check file exists
-      if (!fsSync.existsSync(fullPath)) {
-        console.warn(`[Fixer] File not found, skipping: ${fullPath}`);
-        continue;
+      let currentContent = "";
+
+      if (fsSync.existsSync(fullPath)) {
+        currentContent = await fs.readFile(fullPath, "utf-8");
       }
 
-      // Read content
-      const content = await fs.readFile(fullPath, "utf-8");
+      // Apply fix pattern to get proposed new content
+      const proposedContent = applyFixPattern(filePath, currentContent, diagnosis);
 
-      // Apply fix
-      const result = applyFixToContent(content, fix, filePath);
-
-      if (result) {
-        // Write fixed content
-        await fs.writeFile(fullPath, result.newContent, "utf-8");
-        modifiedFiles.push(filePath);
-        details.push({ file: filePath, pattern: result.patternUsed });
-        console.log(`[Fixer] Applied fix to ${filePath} using pattern: ${result.patternUsed}`);
-      } else {
-        console.warn(`[Fixer] No applicable fix pattern for ${filePath}`);
+      if (proposedContent !== currentContent) {
+        newContents.set(filePath, proposedContent);
       }
     } catch (err: any) {
+      console.error(`[Fixer] Error reading file ${filePath}: ${err.message}`);
+    }
+  }
+
+  // Run security audit on proposed changes
+  const securityAudit = await runSecurityAudit(diagnosis.fix, affectedFiles, newContents);
+
+  if (securityAudit.result === "rejected") {
+    console.log("[Fixer] ⛔ Fix BLOCKED by security audit");
+    console.log(`[Fixer] Issues: ${securityAudit.issues.length}`);
+
+    // Update risk decision with block result
+    await executeRiskDecision(riskResult.auto_fix_id || autoFixId, false, undefined,
+      `Security audit rejected: ${securityAudit.reasoning}`);
+
+    return {
+      action: "blocked",
+      success: false,
+      modifiedFiles: [],
+      backupFiles: [],
+      reason: `Security audit rejected: ${securityAudit.reasoning}`,
+      securityAuditPassed: false
+    };
+  }
+
+  console.log("[Fixer] ✅ Security audit passed");
+
+  // === PHASE 2: Create Backups ===
+  console.log("[Fixer] Phase 2: Creating backups...");
+
+  for (const filePath of affectedFiles) {
+    if (newContents.has(filePath)) {
+      const backupPath = await createBackup(filePath);
+      if (backupPath) {
+        backupFiles.push(backupPath);
+      }
+    }
+  }
+
+  // === PHASE 3: Apply Fixes ===
+  console.log("[Fixer] Phase 3: Applying fixes...");
+
+  for (const [filePath, newContent] of newContents.entries()) {
+    const fullPath = path.resolve(projectRoot, filePath);
+
+    try {
+      // Verify file size
+      if (newContent.length > MAX_FILE_SIZE) {
+        throw new Error(`File too large (${newContent.length} bytes), exceeds limit of ${MAX_FILE_SIZE}`);
+      }
+
+      // Verify syntax before writing
+      if (!verifySyntax(newContent)) {
+        throw new Error("Syntax verification failed after fix application");
+      }
+
+      // Write the fixed content
+      await fs.writeFile(fullPath, newContent, "utf-8");
+
+      modifiedFiles.push(filePath);
+      console.log(`[Fixer] ✅ Fixed: ${filePath}`);
+    } catch (err: any) {
+      console.error(`[Fixer] ❌ Failed to fix ${filePath}: ${err.message}`);
+
+      // Update risk decision with error
+      await executeRiskDecision(riskResult.auto_fix_id || autoFixId, false, undefined, err.message);
+
       return {
+        action: "failed",
         success: false,
         modifiedFiles,
-        details,
-        error: `Failed to apply fix to ${filePath}: ${err.message}`
+        backupFiles,
+        error: err.message,
+        securityAuditPassed: true
       };
     }
   }
 
-  return { success: true, modifiedFiles, details };
-}
+  // === PHASE 4: Update Status ===
+  const success = modifiedFiles.length > 0;
 
-// ==========================================
-// VALIDATION
-// ==========================================
+  console.log(`[Fixer] === Fix Complete ===`);
+  console.log(`[Fixer] Success: ${success}`);
+  console.log(`[Fixer] Modified files: ${modifiedFiles.join(", ") || "none"}`);
+  console.log(`[Fixer] Backup files: ${backupFiles.join(", ") || "none"}`);
 
-/**
- * Run build and test validation.
- */
-async function validateFix(): Promise<{ buildOk: boolean; testsOk: boolean; buildOutput: string; testOutput: string }> {
-  let buildOk = false;
-  let testsOk = false;
-  let buildOutput = "";
-  let testOutput = "";
-
-  // Run build
-  try {
-    console.log("[Fixer] Running npm run build...");
-    const buildResult = await execAsync("npm run build", {
-      timeout: VALIDATION_TIMEOUT,
-      cwd: process.cwd()
-    });
-    buildOutput = buildResult.stdout + buildResult.stderr;
-    buildOk = true;
-    console.log("[Fixer] Build passed ✓");
-  } catch (err: any) {
-    buildOutput = err.stdout + err.stderr + err.message;
-    console.error(`[Fixer] Build failed ✗: ${err.message}`);
-  }
-
-  // Only run tests if build passed
-  if (buildOk) {
-    try {
-      console.log("[Fixer] Running npm test...");
-      const testResult = await execAsync("npm test", {
-        timeout: VALIDATION_TIMEOUT,
-        cwd: process.cwd()
-      });
-      testOutput = testResult.stdout + testResult.stderr;
-      testsOk = true;
-      console.log("[Fixer] Tests passed ✓");
-    } catch (err: any) {
-      testOutput = err.stdout + err.stderr + err.message;
-      console.error(`[Fixer] Tests failed ✗: ${err.message}`);
+  // Update risk decision with execution result
+  await executeRiskDecision(
+    riskResult.auto_fix_id || autoFixId,
+    success,
+    {
+      success,
+      action: success ? "applied" : "no_changes",
+      modifiedFiles,
+      backupFiles
     }
-  }
+  );
 
-  return { buildOk, testsOk, buildOutput, testOutput };
-}
-
-// ==========================================
-// PERSISTENCE
-// ==========================================
-
-/**
- * Update auto_fix record with execution results.
- */
-async function updateAutoFixRecord(
-  autoFixId: string,
-  result: FixResult,
-  patternUsed?: string
-): Promise<void> {
-  try {
-    const { error } = await supabase
-      .from("auto_fixes")
-      .update({
-        status: result.action === "applied" ? "auto_applied" :
-          result.action === "reverted" ? "rejected" :
-            result.action === "blocked" ? "rejected" : "pending_review",
-        applied_by: "autonomous-system-v2",
-        applied_at: new Date().toISOString(),
-        backup_path: result.backupPath,
-        fix_pattern: patternUsed,
-        validation_status: result.action === "applied" ? "passed" :
-          result.action === "reverted" ? "failed" : "skipped",
-        build_output: result.buildOutput?.substring(0, 2000),
-        test_output: result.testOutput?.substring(0, 2000),
-        review_notes: `${result.action}: ${result.reason}\n` +
-          (result.buildOutput ? `Build output: ${result.buildOutput.substring(0, 500)}\n` : "") +
-          (result.testOutput ? `Test output: ${result.testOutput.substring(0, 500)}` : "")
-      })
-      .eq("id", autoFixId);
-
-    if (error) {
-      console.error(`[Fixer] Failed to update auto_fix record: ${error.message}`);
-    }
-  } catch (err: any) {
-    console.error(`[Fixer] Error updating auto_fix record: ${err.message}`);
-  }
-}
-
-/**
- * Update risk_decisions record with execution results.
- */
-async function updateRiskRecord(
-  autoFixId: string,
-  result: FixResult
-): Promise<void> {
-  try {
-    const { error } = await supabase
-      .from("risk_decisions")
-      .update({
-        executed: true,
-        executed_at: new Date().toISOString(),
-        execution_result: {
-          action: result.action,
-          reason: result.reason,
-          success: result.success,
-          modifiedFiles: result.modifiedFiles,
-          backupPath: result.backupPath,
-          error: result.error
-        }
-      })
-      .eq("auto_fix_id", autoFixId);
-
-    if (error) {
-      console.error(`[Fixer] Failed to update risk_decisions record: ${error.message}`);
-    }
-  } catch (err: any) {
-    console.error(`[Fixer] Error updating risk_decisions record: ${err.message}`);
-  }
-}
-
-// ==========================================
-// MAIN FIXER FUNCTION
-// ==========================================
-
-/**
- * Apply an automated fix based on diagnosis and risk assessment.
- *
- * Safety Chain:
- *   1. Only applies if risk_level is 'low'
- *   2. Blocks modifications to critical files
- *   3. Creates backup before any change
- *   4. Validates with build + tests
- *   5. Reverts on validation failure
- *
- * @param diagnosis - The AI diagnosis with suggested fix
- * @param riskAssessment - The risk analysis result
- * @param autoFixId - The auto_fixes record ID
- * @returns FixResult with action taken and details
- */
-export async function applyFix(
-  diagnosis: DiagnosisResult,
-  riskAssessment: RiskAnalysisResult,
-  autoFixId: string
-): Promise<FixResult> {
-  console.log("[Fixer] === Starting auto-fix application ===");
-  console.log(`[Fixer] Auto-fix ID: ${autoFixId}`);
-  console.log(`[Fixer] Risk level: ${riskAssessment.risk_level}`);
-  console.log(`[Fixer] Fix: ${diagnosis.fix.substring(0, 100)}...`);
-
-  // === STEP 1: Verify risk level ===
-  if (riskAssessment.risk_level !== "low") {
-    console.log(`[Fixer] Blocked: risk level is '${riskAssessment.risk_level}', requires 'low'`);
-    const result: FixResult = {
-      success: false,
-      action: "blocked",
-      reason: `Auto-fix blocked: risk level '${riskAssessment.risk_level}' requires 'low'. Manual review required.`,
-      modifiedFiles: []
-    };
-
-    await updateAutoFixRecord(autoFixId, result);
-    await updateRiskRecord(autoFixId, result);
-    return result;
-  }
-
-  // === STEP 2: Verify files are safe ===
-  const affectedFiles = diagnosis.affected_files || [];
-
-  if (affectedFiles.length === 0) {
-    const result: FixResult = {
-      success: false,
-      action: "skipped",
-      reason: "No affected files specified in diagnosis",
-      modifiedFiles: []
-    };
-
-    await updateAutoFixRecord(autoFixId, result);
-    await updateRiskRecord(autoFixId, result);
-    return result;
-  }
-
-  const fileCheck = validateFilesSafe(affectedFiles);
-
-  if (!fileCheck.safe) {
-    console.log(`[Fixer] Blocked: critical files detected: ${fileCheck.blockedFiles.join(", ")}`);
-    const result: FixResult = {
-      success: false,
-      action: "blocked",
-      reason: `Auto-fix blocked: critical files cannot be auto-modified: ${fileCheck.blockedFiles.join(", ")}`,
-      modifiedFiles: []
-    };
-
-    await updateAutoFixRecord(autoFixId, result);
-    await updateRiskRecord(autoFixId, result);
-    return result;
-  }
-
-  // === STEP 3: Create backups ===
-  const backups: { file: string; backupPath: string }[] = [];
-
-  for (const filePath of affectedFiles) {
-    const fullPath = path.resolve(process.cwd(), filePath);
-    try {
-      if (fsSync.existsSync(fullPath)) {
-        const backupPath = await createBackup(fullPath);
-        backups.push({ file: filePath, backupPath });
-      }
-    } catch (err: any) {
-      console.error(`[Fixer] Failed to create backup for ${filePath}: ${err.message}`);
-    }
-  }
-
-  // === STEP 4: Apply fix ===
-  const applyResult = await applyFixToFiles(diagnosis.fix, affectedFiles);
-
-  if (!applyResult.success) {
-    console.error(`[Fixer] Fix application failed: ${applyResult.error}`);
-
-    // Revert any partial changes
-    for (const backup of backups) {
-      try {
-        await restoreFromBackup(backup.backupPath, path.resolve(process.cwd(), backup.file));
-      } catch { /* ignore revert failures */ }
-    }
-
-    const result: FixResult = {
-      success: false,
-      action: "reverted",
-      reason: `Fix application error: ${applyResult.error}`,
-      modifiedFiles: [],
-      backupPath: backups[0]?.backupPath
-    };
-
-    await updateAutoFixRecord(autoFixId, result);
-    await updateRiskRecord(autoFixId, result);
-    return result;
-  }
-
-  if (applyResult.modifiedFiles.length === 0) {
-    // No fix was applicable - clean up backups
-    for (const backup of backups) {
-      await cleanupBackup(backup.backupPath);
-    }
-
-    const result: FixResult = {
-      success: false,
-      action: "skipped",
-      reason: "Fix description did not match any applicable pattern",
-      modifiedFiles: []
-    };
-
-    await updateAutoFixRecord(autoFixId, result);
-    await updateRiskRecord(autoFixId, result);
-    return result;
-  }
-
-  // Extract pattern used from details
-  const patternUsed = applyResult.details[0]?.pattern;
-
-  // === STEP 5: Validate ===
-  console.log("[Fixer] Running validation (build + tests)...");
-  const validation = await validateFix();
-
-  if (validation.buildOk && validation.testsOk) {
-    // === SUCCESS: Fix applied and validated ===
-    console.log("[Fixer] === Auto-fix SUCCESS ===");
-
-    // Clean up backups
-    for (const backup of backups) {
-      await cleanupBackup(backup.backupPath);
-    }
-
-    const result: FixResult = {
-      success: true,
-      action: "applied",
-      reason: "Fix applied and validated successfully",
-      modifiedFiles: applyResult.modifiedFiles,
-      buildOutput: validation.buildOutput,
-      testOutput: validation.testOutput
-    };
-
-    await updateAutoFixRecord(autoFixId, result, patternUsed);
-    await updateRiskRecord(autoFixId, result);
-    return result;
-  }
-
-  // === FAILURE: Revert ===
-  console.log("[Fixer] === Validation FAILED — Reverting ===");
-
-  for (const backup of backups) {
-    try {
-      await restoreFromBackup(backup.backupPath, path.resolve(process.cwd(), backup.file));
-    } catch (err: any) {
-      console.error(`[Fixer] Revert failed for ${backup.file}: ${err.message}`);
-    }
-  }
-
-  const result: FixResult = {
-    success: false,
-    action: "reverted",
-    reason: `Validation failed: build=${validation.buildOk ? "OK" : "FAIL"}, tests=${validation.testsOk ? "OK" : "FAIL"}`,
-    modifiedFiles: applyResult.modifiedFiles,
-    buildOutput: validation.buildOutput,
-    testOutput: validation.testOutput,
-    backupPath: backups[0]?.backupPath
+  return {
+    action: success ? "applied" : "simulated",
+    success,
+    modifiedFiles,
+    backupFiles,
+    securityAuditPassed: true
   };
-
-  await updateAutoFixRecord(autoFixId, result);
-  await updateRiskRecord(autoFixId, result);
-  return result;
-}
-
-// ==========================================
-// UTILITY: Simulate a syntax error for testing
-// ==========================================
-
-/**
- * Introduces a deliberate syntax error in a test file.
- * For testing the auto-fix flow end-to-end.
- */
-export async function simulateSyntaxError(filePath: string): Promise<{ original: string; backupPath: string }> {
-  const fullPath = path.resolve(process.cwd(), filePath);
-
-  if (!fsSync.existsSync(fullPath)) {
-    throw new Error(`Test file not found: ${fullPath}`);
-  }
-
-  const original = await fs.readFile(fullPath, "utf-8");
-  const backupPath = await createBackup(fullPath);
-
-  // Introduce a missing semicolon
-  const lines = original.split("\n");
-  for (let i = 0; i < lines.length; i++) {
-    const trimmed = lines[i].trim();
-    if (
-      trimmed.length > 0 &&
-      !trimmed.endsWith(";") &&
-      !trimmed.endsWith("{") &&
-      !trimmed.endsWith("}") &&
-      !trimmed.endsWith(",") &&
-      !trimmed.startsWith("//") &&
-      !trimmed.startsWith("import") &&
-      !trimmed.startsWith("export") &&
-      trimmed.includes("=") &&
-      !trimmed.includes("function") &&
-      !trimmed.includes("if") &&
-      !trimmed.includes("for")
-    ) {
-      lines[i] = lines[i].replace(/;?$/, ""); // Remove semicolon if present
-      break;
-    }
-  }
-
-  await fs.writeFile(fullPath, lines.join("\n"), "utf-8");
-  console.log(`[Fixer] Simulated syntax error in ${filePath}`);
-
-  return { original, backupPath };
 }

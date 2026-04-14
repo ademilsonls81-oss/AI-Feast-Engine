@@ -1,22 +1,27 @@
 /**
  * Autonomous System v2 — Fase 4: Risk Classifier
  *
- * Evaluates the risk level of auto-fix suggestions before they are applied.
- * Prevents dangerous fixes from being auto-applied without human review.
+ * Evaluates risk level of auto-fixes before they are applied.
+ * Determines whether a fix should be auto-applied, requires human review, or is blocked.
  *
- * Risk Factors:
- *   1. IA Confidence (lower confidence = higher risk)
- *   2. Error Frequency (frequent errors = higher urgency but also higher risk)
- *   3. Affected Files (critical system files = higher risk)
- *   4. Error Severity (critical errors = higher risk)
- *   5. Side Effects Potential (complex fixes = higher risk)
- *   6. Rollback Availability (can we undo? = lower risk)
+ * Risk Classification Logic:
+ *   - LOW: confidence >= 0.8 AND no critical path impact AND rollback available
+ *   - MEDIUM: confidence >= 0.6 OR some risk factors present
+ *   - HIGH: confidence < 0.6 OR critical path impact OR no rollback
+ *   - CRITICAL: affects security, database schema changes, or irreversible operations
  *
- * Decision Matrix:
- *   - low risk (score < 0.3): auto_apply
- *   - medium risk (0.3 <= score < 0.6): require_review
- *   - high risk (0.6 <= score < 0.85): require_review
- *   - critical risk (score >= 0.85): block
+ * Decision Mapping:
+ *   - low risk → auto_apply
+ *   - medium risk → require_review
+ *   - high/critical risk → block
+ *
+ * Flow:
+ *   1. Receive DiagnosisResult from diagnostician
+ *   2. Analyze confidence, affected files, error patterns
+ *   3. Calculate composite risk score (0.00 - 1.00)
+ *   4. Determine risk level and decision
+ *   5. Persist to risk_decisions table
+ *   6. Return RiskAnalysisResult for downstream processing
  */
 
 import { supabase } from "../lib/supabase.js";
@@ -31,317 +36,308 @@ export type RiskDecision = "auto_apply" | "require_review" | "block";
 
 export interface RiskFactors {
   confidence_low: boolean;           // IA confidence < 0.7
-  affects_critical_path: boolean;    // Affects core system files
-  has_side_effects: boolean;         // Fix may affect other components
-  error_frequency: "low" | "medium" | "high";  // How often this error occurs
-  rollback_available: boolean;       // Can we easily undo the fix?
-  affects_production: boolean;       // Affects production environment
-  complexity_high: boolean;          // Fix involves complex changes
+  affects_critical_path: boolean;    // Affects auth, payments, database, security
+  has_side_effects: boolean;         // Fix may impact other components
+  error_frequency: string;           // "low", "medium", "high"
+  rollback_available: boolean;       // Can we safely rollback the fix?
+  affects_production: boolean;       // Directly impacts production environment
+  requires_migration: boolean;       // Requires database schema changes
+  security_impact: boolean;          // Affects security-related code
 }
 
 export interface RiskAnalysisResult {
-  auto_fix_id?: string;
+  auto_fix_id: string;
   risk_level: RiskLevel;
-  risk_score: number;  // 0.00 - 1.00
+  risk_score: number;                // 0.00 - 1.00 composite score
   risk_factors: RiskFactors;
   decision: RiskDecision;
   reasoning: string;
   model_used: string;
-  diagnosis: DiagnosisResult;
+  executed: boolean;
+  executed_at?: string;
+  execution_result?: any;
+  execution_error?: string;
 }
 
 // ==========================================
 // CONFIGURATION
 // ==========================================
 
-// Critical system files that increase risk if modified
-const CRITICAL_PATHS = [
-  "server.ts",
-  "src/lib/supabase.ts",
-  "src/lib/",
-  "src/middleware/",
-  "src/services/auth",
-  "src/routes/auth",
-  "stripe",
-  "webhook"
-];
+const MODEL_VERSION = "risk-classifier-v1";
 
 // Risk score thresholds
-const RISK_THRESHOLDS = {
-  low: 0.3,
-  medium: 0.6,
-  high: 0.85
-};
+const LOW_RISK_THRESHOLD = 0.3;      // <= 0.3 → low risk
+const MEDIUM_RISK_THRESHOLD = 0.6;   // <= 0.6 → medium risk, > 0.6 → high risk
 
-// Weights for risk factors (sum = 1.0)
-const RISK_WEIGHTS = {
-  confidence: 0.25,
-  critical_path: 0.20,
-  side_effects: 0.15,
-  error_frequency: 0.10,
-  rollback: 0.10,
-  production: 0.10,
-  complexity: 0.10
-};
+// Critical file patterns (affects core system functionality)
+const CRITICAL_PATH_PATTERNS = [
+  "auth",
+  "security",
+  "payment",
+  "stripe",
+  "webhook",
+  "database",
+  "supabase",
+  "migration",
+  "schema",
+  "config",
+  ".env",
+  "secret",
+  "password",
+  "token",
+  "session",
+  "middleware",
+  "server.ts"
+];
 
 // ==========================================
-// RISK FACTOR ANALYSIS
+// RISK ANALYSIS
 // ==========================================
 
 /**
- * Analyze if affected files include critical system paths.
+ * Analyze risk level of a proposed auto-fix.
+ *
+ * @param diagnosis - The diagnosis result from diagnostician
+ * @param autoFixId - ID of the auto_fix record
+ * @returns RiskAnalysisResult with risk level, decision, and reasoning
  */
-function affectsCriticalPath(affectedFiles: string[]): boolean {
-  if (!affectedFiles || affectedFiles.length === 0) return false;
+export async function analyzeRisk(
+  diagnosis: DiagnosisResult,
+  autoFixId: string
+): Promise<RiskAnalysisResult> {
+  console.log("[RiskAnalyzer] Starting risk analysis...");
+  console.log(`[RiskAnalyzer] Auto-fix ID: ${autoFixId}`);
+  console.log(`[RiskAnalyzer] Confidence: ${diagnosis.confidence}`);
+  console.log(`[RiskAnalyzer] Affected files: ${diagnosis.affected_files.join(", ") || "none"}`);
 
-  return affectedFiles.some(file =>
-    CRITICAL_PATHS.some(path => file.toLowerCase().includes(path.toLowerCase()))
+  // Step 1: Identify risk factors
+  const riskFactors = identifyRiskFactors(diagnosis);
+
+  // Step 2: Calculate composite risk score
+  const riskScore = calculateRiskScore(diagnosis, riskFactors);
+
+  // Step 3: Determine risk level
+  const riskLevel = determineRiskLevel(riskScore, riskFactors);
+
+  // Step 4: Make decision based on risk level
+  const decision = mapRiskLevelToDecision(riskLevel);
+
+  // Step 5: Generate reasoning
+  const reasoning = generateReasoning(riskLevel, riskScore, riskFactors, diagnosis);
+
+  const result: RiskAnalysisResult = {
+    auto_fix_id: autoFixId,
+    risk_level: riskLevel,
+    risk_score: riskScore,
+    risk_factors: riskFactors,
+    decision,
+    reasoning,
+    model_used: MODEL_VERSION,
+    executed: false
+  };
+
+  console.log(`[RiskAnalyzer] Risk level: ${riskLevel.toUpperCase()}`);
+  console.log(`[RiskAnalyzer] Risk score: ${riskScore.toFixed(2)}`);
+  console.log(`[RiskAnalyzer] Decision: ${decision}`);
+  console.log(`[RiskAnalyzer] Reasoning: ${reasoning.substring(0, 120)}...`);
+
+  return result;
+}
+
+/**
+ * Identify risk factors from diagnosis result.
+ */
+function identifyRiskFactors(diagnosis: DiagnosisResult): RiskFactors {
+  const affectedFiles = diagnosis.affected_files || [];
+
+  // Check if any affected file matches critical path patterns
+  const affectsCriticalPath = affectedFiles.some(file =>
+    CRITICAL_PATH_PATTERNS.some(pattern =>
+      file.toLowerCase().includes(pattern.toLowerCase())
+    )
   );
+
+  // Check for security impact
+  const securityImpact = affectedFiles.some(file =>
+    ["security", "auth", "secret", "password", "token", "session"].some(p =>
+      file.toLowerCase().includes(p)
+    )
+  );
+
+  // Check if fix requires migration
+  const requiresMigration = diagnosis.fix.toLowerCase().includes("migration") ||
+    diagnosis.fix.toLowerCase().includes("schema") ||
+    diagnosis.cause.toLowerCase().includes("database");
+
+  // Check for side effects (multiple affected files suggests broader impact)
+  const hasSideEffects = affectedFiles.length > 2;
+
+  // Determine error frequency from error IDs (if available)
+  const errorFrequency = diagnosis.error_ids.length > 3 ? "high" :
+    diagnosis.error_ids.length > 1 ? "medium" : "low";
+
+  // Determine if rollback is available (conservative: assume no for critical paths)
+  const rollbackAvailable = !affectsCriticalPath && !requiresMigration;
+
+  // Determine if affects production
+  const affectsProduction = diagnosis.confidence >= 0.5 && affectsCriticalPath;
+
+  return {
+    confidence_low: diagnosis.confidence < 0.7,
+    affects_critical_path: affectsCriticalPath,
+    has_side_effects: hasSideEffects,
+    error_frequency: errorFrequency,
+    rollback_available: rollbackAvailable,
+    affects_production: affectsProduction,
+    requires_migration: requiresMigration,
+    security_impact: securityImpact
+  };
 }
-
-/**
- * Estimate if the fix has potential side effects.
- * Heuristic: fixes affecting multiple files or critical paths likely have side effects.
- */
-function hasSideEffects(affectedFiles: string[], fix: string): boolean {
-  // Multiple files = higher chance of side effects
-  if (affectedFiles.length > 3) return true;
-
-  // Fix mentions changes to shared components
-  const sideEffectKeywords = [
-    "middleware", "shared", "global", "config", "database",
-    "schema", "migration", "all", "every", "entire"
-  ];
-
-  const fixLower = fix.toLowerCase();
-  return sideEffectKeywords.some(keyword => fixLower.includes(keyword));
-}
-
-/**
- * Determine error frequency category.
- * Based on the error patterns in the diagnosis.
- */
-function estimateErrorFrequency(diagnosis: DiagnosisResult): "low" | "medium" | "high" {
-  // Use error_ids count as proxy for frequency
-  const errorCount = diagnosis.error_ids?.length || 0;
-
-  if (errorCount >= 5) return "high";
-  if (errorCount >= 2) return "medium";
-  return "low";
-}
-
-/**
- * Check if rollback is available.
- * Heuristic: if the fix affects versioned files or has migration support.
- */
-function isRollbackAvailable(affectedFiles: string[], fix: string): boolean {
-  // Migrations can be rolled back
-  if (affectedFiles.some(f => f.includes("migration"))) return true;
-
-  // Fix mentions revert or rollback
-  const fixLower = fix.toLowerCase();
-  if (fixLower.includes("revert") || fixLower.includes("rollback")) return true;
-
-  // Config changes can be reverted
-  if (affectedFiles.some(f => f.includes("config") || f.includes(".env"))) return true;
-
-  return false;
-}
-
-/**
- * Check if fix affects production environment.
- */
-function affectsProduction(affectedFiles: string[]): boolean {
-  // Core server files and routes affect production
-  return affectsCriticalPath(affectedFiles) ||
-    affectedFiles.some(f => f.includes("routes") || f.includes("server"));
-}
-
-/**
- * Estimate fix complexity.
- */
-function isComplexFix(fix: string, affectedFiles: string[]): boolean {
-  // Long fix description = complex
-  if (fix.length > 500) return true;
-
-  // Multiple files = complex
-  if (affectedFiles.length > 5) return true;
-
-  // Complex keywords
-  const complexityKeywords = [
-    "refactor", "restructure", "rewrite", "redesign",
-    "architecture", "pattern", "multiple", "several"
-  ];
-
-  const fixLower = fix.toLowerCase();
-  return complexityKeywords.some(keyword => fixLower.includes(keyword));
-}
-
-// ==========================================
-// RISK SCORE CALCULATION
-// ==========================================
 
 /**
  * Calculate composite risk score (0.00 - 1.00).
+ *
+ * Weighted factors:
+ *   - Confidence: 30% (lower confidence = higher risk)
+ *   - Critical path impact: 25%
+ *   - Security impact: 20%
+ *   - Side effects: 10%
+ *   - Migration required: 10%
+ *   - Rollback availability: 5%
  */
-function calculateRiskScore(
-  diagnosis: DiagnosisResult,
-  factors: RiskFactors
-): number {
+function calculateRiskScore(diagnosis: DiagnosisResult, factors: RiskFactors): number {
   let score = 0;
 
-  // 1. Confidence factor (low confidence = high risk)
-  const confidenceRisk = 1 - diagnosis.confidence;
-  score += confidenceRisk * RISK_WEIGHTS.confidence;
+  // Confidence factor (30%)
+  // Invert confidence: 1.0 confidence → 0 risk, 0.0 confidence → 1.0 risk
+  score += (1 - diagnosis.confidence) * 0.30;
 
-  // 2. Critical path
-  score += (factors.affects_critical_path ? 1 : 0) * RISK_WEIGHTS.critical_path;
+  // Critical path impact (25%)
+  if (factors.affects_critical_path) {
+    score += 0.25;
+  }
 
-  // 3. Side effects
-  score += (factors.has_side_effects ? 1 : 0) * RISK_WEIGHTS.side_effects;
+  // Security impact (20%)
+  if (factors.security_impact) {
+    score += 0.20;
+  }
 
-  // 4. Error frequency (high frequency = higher urgency but also higher risk of cascade)
-  const frequencyScore = factors.error_frequency === "high" ? 1 :
-    factors.error_frequency === "medium" ? 0.5 : 0;
-  score += frequencyScore * RISK_WEIGHTS.error_frequency;
+  // Side effects (10%)
+  if (factors.has_side_effects) {
+    score += 0.10;
+  }
 
-  // 5. Rollback (no rollback = higher risk)
-  score += (factors.rollback_available ? 0 : 1) * RISK_WEIGHTS.rollback;
+  // Migration required (10%)
+  if (factors.requires_migration) {
+    score += 0.10;
+  }
 
-  // 6. Production impact
-  score += (factors.affects_production ? 1 : 0) * RISK_WEIGHTS.production;
+  // Rollback unavailability (5%)
+  if (!factors.rollback_available) {
+    score += 0.05;
+  }
 
-  // 7. Complexity
-  score += (factors.complexity_high ? 1 : 0) * RISK_WEIGHTS.complexity;
-
-  // Clamp to 0-1
-  return Math.min(1, Math.max(0, score));
+  // Clamp to 0.00 - 1.00
+  return Math.min(1.00, Math.max(0.00, score));
 }
 
 /**
- * Determine risk level from score.
- * Exported for testing.
+ * Determine risk level from score and factors.
  */
-export function scoreToRiskLevel(score: number): RiskLevel {
-  if (score >= RISK_THRESHOLDS.high) return "critical";
-  if (score >= RISK_THRESHOLDS.medium) return "high";
-  if (score >= RISK_THRESHOLDS.low) return "medium";
-  return "low";
+function determineRiskLevel(riskScore: number, factors: RiskFactors): RiskLevel {
+  // Override to critical if security impact + production impact
+  if (factors.security_impact && factors.affects_production) {
+    return "critical";
+  }
+
+  // Override to critical if requires migration + no rollback
+  if (factors.requires_migration && !factors.rollback_available) {
+    return "critical";
+  }
+
+  // Standard threshold-based classification
+  if (riskScore <= LOW_RISK_THRESHOLD) {
+    return "low";
+  } else if (riskScore <= MEDIUM_RISK_THRESHOLD) {
+    return "medium";
+  } else if (riskScore <= 0.8) {
+    return "high";
+  } else {
+    return "critical";
+  }
 }
 
 /**
- * Determine decision based on risk level.
+ * Map risk level to decision.
  */
-function riskLevelToDecision(riskLevel: RiskLevel): RiskDecision {
+function mapRiskLevelToDecision(riskLevel: RiskLevel): RiskDecision {
   switch (riskLevel) {
     case "low":
       return "auto_apply";
     case "medium":
-    case "high":
       return "require_review";
+    case "high":
     case "critical":
       return "block";
+    default:
+      return "require_review";
   }
 }
 
-// ==========================================
-// REASONING GENERATION
-// ==========================================
-
 /**
- * Generate human-readable reasoning for the risk classification.
+ * Generate human-readable reasoning for the risk decision.
  */
 function generateReasoning(
-  diagnosis: DiagnosisResult,
-  factors: RiskFactors,
   riskLevel: RiskLevel,
-  riskScore: number
+  riskScore: number,
+  factors: RiskFactors,
+  diagnosis: DiagnosisResult
 ): string {
-  const reasons: string[] = [];
+  const parts: string[] = [];
 
+  parts.push(`Risk level: ${riskLevel.toUpperCase()} (score: ${riskScore.toFixed(2)})`);
+
+  // Confidence factor
   if (factors.confidence_low) {
-    reasons.push(`IA confidence is low (${diagnosis.confidence})`);
+    parts.push(`Low IA confidence (${diagnosis.confidence.toFixed(2)})`);
   }
 
+  // Critical path
   if (factors.affects_critical_path) {
-    reasons.push("fix affects critical system paths");
+    parts.push("Affects critical system path");
   }
 
+  // Security
+  if (factors.security_impact) {
+    parts.push("Security-related code impact");
+  }
+
+  // Side effects
   if (factors.has_side_effects) {
-    reasons.push("potential side effects detected");
+    parts.push(`Potential side effects (${diagnosis.affected_files.length} files affected)`);
   }
 
-  if (factors.error_frequency === "high") {
-    reasons.push("error frequency is high (frequent failures)");
+  // Migration
+  if (factors.requires_migration) {
+    parts.push("Requires database migration");
   }
 
+  // Rollback
   if (!factors.rollback_available) {
-    reasons.push("no automatic rollback available");
+    parts.push("No rollback available");
   }
 
-  if (factors.affects_production) {
-    reasons.push("affects production environment");
+  // If low risk, add positive factors
+  if (riskLevel === "low") {
+    if (!factors.affects_critical_path && !factors.security_impact) {
+      parts.push("No critical path or security impact");
+    }
+    if (factors.rollback_available) {
+      parts.push("Rollback available if needed");
+    }
   }
 
-  if (factors.complexity_high) {
-    reasons.push("fix complexity is high");
-  }
-
-  if (reasons.length === 0) {
-    reasons.push("no significant risk factors detected");
-  }
-
-  return `Risk level: ${riskLevel} (score: ${riskScore.toFixed(2)}). ${reasons.join("; ")}. Decision: ${riskLevelToDecision(riskLevel).replace("_", " ")}.`;
-}
-
-// ==========================================
-// MAIN RISK ANALYSIS
-// ==========================================
-
-/**
- * Analyze the risk level of a diagnosis result.
- *
- * @param diagnosis - The DiagnosisResult from the diagnostician
- * @returns RiskAnalysisResult with risk_level, risk_score, decision, reasoning
- */
-export async function analyzeRisk(diagnosis: DiagnosisResult): Promise<RiskAnalysisResult> {
-  console.log("[RiskAnalyzer] Starting risk analysis...");
-
-  const affectedFiles = diagnosis.affected_files || [];
-  const fix = diagnosis.fix || "";
-
-  // Analyze risk factors
-  const riskFactors: RiskFactors = {
-    confidence_low: diagnosis.confidence < 0.7,
-    affects_critical_path: affectsCriticalPath(affectedFiles),
-    has_side_effects: hasSideEffects(affectedFiles, fix),
-    error_frequency: estimateErrorFrequency(diagnosis),
-    rollback_available: isRollbackAvailable(affectedFiles, fix),
-    affects_production: affectsProduction(affectedFiles),
-    complexity_high: isComplexFix(fix, affectedFiles)
-  };
-
-  // Calculate risk score
-  const riskScore = calculateRiskScore(diagnosis, riskFactors);
-  const riskLevel = scoreToRiskLevel(riskScore);
-  const decision = riskLevelToDecision(riskLevel);
-  const reasoning = generateReasoning(diagnosis, riskFactors, riskLevel, riskScore);
-
-  const result: RiskAnalysisResult = {
-    risk_level: riskLevel,
-    risk_score: Math.round(riskScore * 100) / 100,  // Round to 2 decimals
-    risk_factors: riskFactors,
-    decision,
-    reasoning,
-    model_used: "risk-classifier-v1",
-    diagnosis
-  };
-
-  console.log(`[RiskAnalyzer] Risk level: ${riskLevel} (score: ${result.risk_score})`);
-  console.log(`[RiskAnalyzer] Decision: ${decision}`);
-  console.log(`[RiskAnalyzer] Reasoning: ${reasoning}`);
-
-  return result;
+  return parts.join(". ") + ".";
 }
 
 // ==========================================
@@ -351,105 +347,81 @@ export async function analyzeRisk(diagnosis: DiagnosisResult): Promise<RiskAnaly
 /**
  * Persist risk analysis to risk_decisions table.
  *
- * @param riskAnalysis - The RiskAnalysisResult to persist
- * @param autoFixId - The ID of the auto_fix record this analysis refers to
+ * @param result - The RiskAnalysisResult to persist
+ * @returns ID of the inserted risk_decisions record, or null on failure
  */
-export async function persistRiskAnalysis(
-  riskAnalysis: RiskAnalysisResult,
-  autoFixId: string
-): Promise<void> {
+export async function persistRiskAnalysis(result: RiskAnalysisResult): Promise<string | null> {
   try {
-    const { error } = await supabase.from("risk_decisions").insert({
-      auto_fix_id: autoFixId,
-      risk_level: riskAnalysis.risk_level,
-      risk_score: riskAnalysis.risk_score,
-      risk_factors: riskAnalysis.risk_factors,
-      decision: riskAnalysis.decision,
-      reasoning: riskAnalysis.reasoning,
-      model_used: riskAnalysis.model_used
-    });
+    const { data, error } = await supabase
+      .from("risk_decisions")
+      .insert({
+        auto_fix_id: result.auto_fix_id,
+        risk_level: result.risk_level,
+        risk_score: result.risk_score,
+        risk_factors: result.risk_factors,
+        decision: result.decision,
+        reasoning: result.reasoning,
+        model_used: result.model_used,
+        executed: false
+      })
+      .select("id")
+      .single();
 
     if (error) {
       console.error(`[RiskAnalyzer] Failed to persist risk analysis: ${error.message}`);
-    } else {
-      console.log(`[RiskAnalyzer] Risk analysis persisted (ID: ${autoFixId})`);
+      return null;
     }
+
+    console.log(`[RiskAnalyzer] Risk analysis persisted with ID: ${data?.id}`);
+    return data?.id || null;
   } catch (err: any) {
     console.error(`[RiskAnalyzer] Unexpected error persisting risk analysis: ${err.message}`);
+    return null;
   }
 }
 
 // ==========================================
-// DECISION EXECUTOR
+// EXECUTION
 // ==========================================
 
 /**
  * Execute the risk decision.
- * - auto_apply: apply the fix automatically
- * - require_review: flag for human review
- * - block: prevent fix from being applied
+ * Updates the risk_decisions record with execution status.
  *
- * NOTE: auto_apply is not yet implemented — requires a code modification system.
- * For now, it just updates the auto_fix status.
+ * @param riskDecisionId - ID of the risk_decisions record
+ * @param executed - Whether the decision was executed
+ * @param result - Execution result (success/failure details)
+ * @param error - Error message if execution failed
  */
 export async function executeRiskDecision(
-  riskAnalysis: RiskAnalysisResult,
-  autoFixId: string
-): Promise<{ success: boolean; result?: any; error?: string }> {
-  console.log(`[RiskAnalyzer] Executing decision: ${riskAnalysis.decision}`);
-
+  riskDecisionId: string,
+  executed: boolean,
+  result?: any,
+  error?: string
+): Promise<void> {
   try {
-    let newStatus: string;
-
-    switch (riskAnalysis.decision) {
-      case "auto_apply":
-        newStatus = "auto_applied";
-        console.log(`[RiskAnalyzer] Auto-applying fix ${autoFixId}...`);
-        // TODO: Implement actual code modification
-        // For now, just update status
-        break;
-
-      case "require_review":
-        newStatus = "pending_review";
-        console.log(`[RiskAnalyzer] Flagging ${autoFixId} for human review...`);
-        break;
-
-      case "block":
-        newStatus = "rejected";
-        console.log(`[RiskAnalyzer] Blocking fix ${autoFixId} — too risky!`);
-        break;
-
-      default:
-        return { success: false, error: `Unknown decision: ${riskAnalysis.decision}` };
-    }
-
-    // Update auto_fix status
-    const { error } = await supabase
-      .from("auto_fixes")
-      .update({ status: newStatus })
-      .eq("id", autoFixId);
-
-    if (error) {
-      return { success: false, error: error.message };
-    }
-
-    // Update risk_decisions executed flag
     const { error: updateError } = await supabase
       .from("risk_decisions")
       .update({
-        executed: true,
-        executed_at: new Date().toISOString(),
-        execution_result: { status: newStatus }
+        executed,
+        executed_at: executed ? new Date().toISOString() : null,
+        execution_result: result ? {
+          success: result.success,
+          action: result.action,
+          modifiedFiles: result.modifiedFiles,
+          timestamp: new Date().toISOString()
+        } : null,
+        execution_error: error || null
       })
-      .eq("auto_fix_id", autoFixId);
+      .eq("id", riskDecisionId);
 
     if (updateError) {
-      console.error(`[RiskAnalyzer] Failed to update execution status: ${updateError.message}`);
+      console.error(`[RiskAnalyzer] Failed to update risk decision execution: ${updateError.message}`);
+    } else {
+      console.log(`[RiskAnalyzer] Risk decision execution status updated: executed=${executed}`);
     }
-
-    return { success: true, result: { status: newStatus } };
   } catch (err: any) {
-    return { success: false, error: err.message };
+    console.error(`[RiskAnalyzer] Unexpected error updating risk decision: ${err.message}`);
   }
 }
 
@@ -458,31 +430,57 @@ export async function executeRiskDecision(
 // ==========================================
 
 /**
- * Complete risk analysis pipeline:
- * 1. Analyze risk
- * 2. Persist to database
- * 3. Execute decision
+ * Run the complete risk analysis pipeline.
  *
- * @param diagnosis - The DiagnosisResult from the diagnostician
- * @param autoFixId - The ID of the auto_fix record
+ * @param diagnosis - The diagnosis result from diagnostician
+ * @param autoFixId - ID of the auto_fix record
  * @returns RiskAnalysisResult with execution status
  */
 export async function fullRiskPipeline(
   diagnosis: DiagnosisResult,
   autoFixId: string
-): Promise<RiskAnalysisResult & { executed: boolean; executionError?: string }> {
-  // 1. Analyze risk
-  const riskAnalysis = await analyzeRisk(diagnosis);
+): Promise<RiskAnalysisResult> {
+  console.log("[RiskAnalyzer] === Starting full risk analysis pipeline ===");
 
-  // 2. Persist
-  await persistRiskAnalysis(riskAnalysis, autoFixId);
+  try {
+    // Step 1: Analyze risk
+    const riskResult = await analyzeRisk(diagnosis, autoFixId);
 
-  // 3. Execute decision
-  const execution = await executeRiskDecision(riskAnalysis, autoFixId);
+    // Step 2: Persist analysis
+    const persistedId = await persistRiskAnalysis(riskResult);
+    if (!persistedId) {
+      console.warn("[RiskAnalyzer] Failed to persist risk analysis, continuing anyway...");
+    }
 
-  return {
-    ...riskAnalysis,
-    executed: execution.success,
-    executionError: execution.error
-  };
+    console.log(`[RiskAnalyzer] === Risk Analysis Complete ===`);
+    console.log(`[RiskAnalyzer] Risk level: ${riskResult.risk_level.toUpperCase()}`);
+    console.log(`[RiskAnalyzer] Decision: ${riskResult.decision}`);
+    console.log(`[RiskAnalyzer] Executed: ${riskResult.executed}`);
+
+    return riskResult;
+  } catch (err: any) {
+    console.error(`[RiskAnalyzer] Pipeline error: ${err.message}`);
+
+    // Return a safe "block" decision on error
+    return {
+      auto_fix_id: autoFixId,
+      risk_level: "high",
+      risk_score: 0.8,
+      risk_factors: {
+        confidence_low: false,
+        affects_critical_path: false,
+        has_side_effects: false,
+        error_frequency: "unknown",
+        rollback_available: false,
+        affects_production: false,
+        requires_migration: false,
+        security_impact: false
+      },
+      decision: "block",
+      reasoning: `Risk analysis pipeline failed: ${err.message}. Blocking for safety.`,
+      model_used: MODEL_VERSION,
+      executed: false,
+      execution_error: err.message
+    };
+  }
 }
