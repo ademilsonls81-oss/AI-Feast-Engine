@@ -1,146 +1,26 @@
 /**
  * Autonomous System v2 — Fase 2: Monitor
- * 
- * Scheduled monitor that checks error frequency and triggers diagnosis
- * when error thresholds are exceeded.
- * 
+ *
+ * Scheduled monitor that checks error frequency and triggers
+ * the autonomous loop when error thresholds are exceeded.
+ *
  * Schedule: Every hour at minute 0 (0 * * * *)
- * 
+ *
  * Logic:
- *   1. Count errors from the last hour in system_errors table
- *   2. If count >= THRESHOLD (5), log alert and trigger diagnosis (Fase 3)
- *   3. If count < THRESHOLD, log "below threshold, ignoring"
- * 
+ *   1. Delegate to runAutonomousLoop() for all autonomous phases
+ *   2. Monitor only schedules/trigger the loop — does NOT execute phases directly
+ *
  * In development (NODE_ENV !== 'production'), the cron is registered
  * but does NOT execute — only logs "Monitor agendado (pausado em dev)".
  */
 
 import cron from "node-cron";
-import { supabase } from "../lib/supabase.js";
-import { runDiagnosis } from "./diagnostician.js";
-import { fullRiskPipeline } from "./riskAnalyzer.js";
-import { applyFix } from "./fixer.js";
-import type { SystemError } from "./diagnostician.js";
+import { runAutonomousLoop } from "./loop.js";
 
 // ==========================================
 // CONFIGURATION
 // ==========================================
-const ERROR_THRESHOLD = 5; // errors per hour to trigger diagnosis
 const CRON_SCHEDULE = "0 * * * *"; // every hour at minute 0
-
-// ==========================================
-// FASE 3: AI DIAGNOSIS
-// ==========================================
-/**
- * Run autonomous diagnosis using AI (Groq).
- * Fetches recent errors and calls the diagnostician.
- */
-async function runDiagnosisWithAI() {
-  console.log("🔍 [Diagnosis] Starting autonomous diagnosis...");
-
-  try {
-    // Fetch recent errors (last hour, max 5)
-    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-
-    const { data: errors, error: fetchError } = await supabase
-      .from("system_errors")
-      .select("id, error_type, source, message, stack_trace, severity, endpoint, http_status, created_at")
-      .gte("created_at", oneHourAgo)
-      .order("created_at", { ascending: false })
-      .limit(5);
-
-    if (fetchError) {
-      console.error(`❌ [Diagnosis] Failed to fetch errors: ${fetchError.message}`);
-      return;
-    }
-
-    if (!errors || errors.length === 0) {
-      console.log("🔍 [Diagnosis] No errors to analyze.");
-      return;
-    }
-
-    console.log(`🔍 [Diagnosis] Analyzing ${errors.length} error(s)...`);
-
-    // Call AI diagnostician
-    const result = await runDiagnosis(errors as SystemError[]);
-
-    console.log(`✅ [Diagnosis] Cause: ${result.cause.substring(0, 120)}...`);
-    console.log(`✅ [Diagnosis] Fix: ${result.fix.substring(0, 120)}...`);
-    console.log(`✅ [Diagnosis] Confidence: ${result.confidence}`);
-    console.log(`✅ [Diagnosis] Model: ${result.model_used}`);
-    if (result.affected_files.length > 0) {
-      console.log(`✅ [Diagnosis] Affected files: ${result.affected_files.join(", ")}`);
-    }
-
-    // Run risk analysis on the diagnosis (Fase 4)
-    if (result.auto_fix_id) {
-      console.log("🔍 [RiskAnalyzer] Running risk analysis pipeline...");
-      const riskResult = await fullRiskPipeline(result, result.auto_fix_id);
-      console.log(`✅ [RiskAnalyzer] Risk level: ${riskResult.risk_level}`);
-      console.log(`✅ [RiskAnalyzer] Decision: ${riskResult.decision}`);
-      console.log(`✅ [RiskAnalyzer] Executed: ${riskResult.executed}`);
-      if (riskResult.execution_error) {
-        console.error(`❌ [RiskAnalyzer] Execution error: ${riskResult.execution_error}`);
-      }
-
-      // Fase 5: Auto-fix (only if decision was auto_apply)
-      if (riskResult.decision === "auto_apply") {
-        console.log("🔧 [Fixer] Decision is auto_apply — attempting automated fix...");
-        const fixResult = await applyFix(result, riskResult, result.auto_fix_id);
-        console.log(`✅ [Fixer] Action: ${fixResult.action}`);
-        console.log(`✅ [Fixer] Success: ${fixResult.success}`);
-        console.log(`✅ [Fixer] Modified files: ${fixResult.modifiedFiles.join(", ") || "none"}`);
-        if (fixResult.error) {
-          console.error(`❌ [Fixer] Error: ${fixResult.error}`);
-        }
-        if (fixResult.reason) {
-          console.log(`✅ [Fixer] Reason: ${fixResult.reason}`);
-        }
-      }
-    }
-  } catch (err: any) {
-    console.error(`❌ [Diagnosis] Unexpected error: ${err.message}`);
-  }
-}
-
-// ==========================================
-// ERROR THRESHOLD CHECK
-// ==========================================
-/**
- * Check if error count in the last hour exceeds the threshold.
- * 
- * Query: SELECT COUNT(*) FROM system_errors WHERE created_at > NOW() - INTERVAL '1 hour'
- */
-async function checkErrorThreshold() {
-  console.log("[Monitor] Checking error threshold...");
-
-  try {
-    // Count errors in the last hour
-    const { count, error } = await supabase
-      .from("system_errors")
-      .select("*", { count: "exact", head: true })
-      .gte("created_at", new Date(Date.now() - 60 * 60 * 1000).toISOString());
-
-    if (error) {
-      console.error(`❌ [Monitor] Failed to query errors: ${error.message}`);
-      return;
-    }
-
-    const errorCount = count || 0;
-
-    if (errorCount >= ERROR_THRESHOLD) {
-      console.log(`🚨 [Monitor] ${errorCount} errors detected in the last hour (threshold: ${ERROR_THRESHOLD})!`);
-      console.log("🚨 [Monitor] Triggering autonomous diagnosis...");
-
-      // Trigger AI diagnosis (Fase 3)
-      await runDiagnosisWithAI();
-    } else {
-      console.log(`✅ [Monitor] ${errorCount} errors in the last hour — below threshold, ignoring.`);
-    }
-  } catch (err: any) {
-    console.error(`❌ [Monitor] Unexpected error during threshold check: ${err.message}`);
-  }
-}
 
 // ==========================================
 // CRON JOB INITIALIZATION
@@ -154,26 +34,26 @@ export function startMonitor() {
   const isProduction = process.env.NODE_ENV === "production";
 
   if (!isProduction) {
-    console.log("📋 [Monitor] Monitor agendado (pausado em dev). Para testar, execute checkErrorThreshold() manualmente.");
+    console.log("📋 [Monitor] Monitor agendado (pausado em dev). Para testar, execute triggerAutonomousLoop() manualmente.");
     // Register but don't start — provide manual test function
-    return { checkErrorThreshold };
+    return { triggerAutonomousLoop: runAutonomousLoop };
   }
 
   console.log(`📋 [Monitor] Starting monitor cron job (${CRON_SCHEDULE})...`);
 
-  // Schedule the cron job
+  // Schedule the cron job to run the autonomous loop
   const task = cron.schedule(CRON_SCHEDULE, async () => {
-    await checkErrorThreshold();
+    await runAutonomousLoop();
   }, {
     timezone: "UTC"
   });
 
   // Run once on startup to verify everything works
-  console.log("[Monitor] Running initial threshold check...");
-  checkErrorThreshold();
+  console.log("[Monitor] Running initial autonomous loop...");
+  runAutonomousLoop();
 
-  return { task, checkErrorThreshold };
+  return { task, triggerAutonomousLoop: runAutonomousLoop };
 }
 
 // Export for manual testing
-export { checkErrorThreshold };
+export { runAutonomousLoop as triggerAutonomousLoop };
