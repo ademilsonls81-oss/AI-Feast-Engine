@@ -35,6 +35,19 @@ vi.mock("../src/autonomous/tester.js", () => ({
   quickValidation: vi.fn().mockResolvedValue({ passed: true })
 }));
 
+// Mock the deployer module to avoid actual git operations
+vi.mock("../src/autonomous/deployer.js", () => ({
+  deployIfSafe: vi.fn().mockResolvedValue({
+    success: true,
+    commitHash: "mock-commit-hash-12345",
+    branch: "feature/autonomous-v2",
+    message: "fix(autonomous): apply auto-fix for error test-error-id",
+    deployTime: 500
+  }),
+  isDeploySafe: vi.fn().mockResolvedValue({ safe: true }),
+  revertDeploy: vi.fn().mockResolvedValue({ success: true, newCommitHash: "mock-revert-hash" })
+}));
+
 // Test file path (non-critical)
 const TEST_FILE = "src/autonomous/test-fix-target.ts";
 const TEST_FILE_ABSOLUTE = path.resolve(process.cwd(), TEST_FILE);

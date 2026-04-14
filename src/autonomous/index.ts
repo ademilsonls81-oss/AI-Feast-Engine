@@ -12,6 +12,7 @@
  *   Fase 5: Auto-Fixer (controlled auto-correction)
  *   Fase 6: Security Auditor (mandatory audit before any fix)
  *   Fase 7: Smoke Tests (automated validation after fix)
+ *   Fase 8: Auto Deploy (automatic git commit + push after validation)
  */
 
 export { logError, withErrorLogging } from "./errorLogger.js";
@@ -21,9 +22,11 @@ export { analyzeRisk, persistRiskAnalysis, executeRiskDecision, fullRiskPipeline
 export { applyFix, simulateSyntaxError } from "./fixer.js";
 export { runSecurityAudit, quickSecurityAudit } from "./auditor.js";
 export { runSmokeTests, validateFixWithRollback, quickValidation } from "./tester.js";
+export { deployIfSafe, isDeploySafe, revertDeploy } from "./deployer.js";
 export type { ErrorType, ErrorSource, ErrorSeverity } from "./errorLogger.js";
 export type { SystemError, DiagnosisResult } from "./diagnostician.js";
 export type { RiskLevel, RiskDecision, RiskFactors, RiskAnalysisResult } from "./riskAnalyzer.js";
 export type { FixResult, FixPattern } from "./fixer.js";
 export type { AuditResult, AuditIssue, AuditResultFull } from "./auditor.js";
 export type { SmokeTestResult, SmokeTestSuiteResult } from "./tester.js";
+export type { DeployResult, DeployConfig } from "./deployer.js";

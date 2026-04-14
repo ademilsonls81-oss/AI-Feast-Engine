@@ -516,7 +516,30 @@ export async function applyFix(
 
   console.log("[Fixer] ✅ Smoke tests passed — fix validated");
 
-  // === PHASE 6: Final Status Update ===
+  // === PHASE 6: Automatic Deploy ===
+  console.log("[Fixer] Phase 6: Attempting automatic deploy...");
+
+  try {
+    const { deployIfSafe } = await import("./deployer.js");
+
+    const deployResult = await deployIfSafe({
+      autoFixId,
+      modifiedFiles,
+      errorId: diagnosis.error_ids?.[0],
+      commitMessage: `fix(autonomous): apply auto-fix for error ${diagnosis.error_ids?.[0] || "unknown"}`
+    });
+
+    if (deployResult.success) {
+      console.log(`[Fixer] ✅ Deploy successful — commit: ${deployResult.commitHash}`);
+    } else {
+      console.log(`[Fixer] ⚠️  Deploy failed — fix still applied locally: ${deployResult.error}`);
+    }
+  } catch (deployErr: any) {
+    console.log(`[Fixer] ⚠️  Deploy error — fix still applied locally: ${deployErr.message}`);
+    // Don't fail the fix if deploy fails — fix is still valid locally
+  }
+
+  // === PHASE 7: Final Status Update ===
   console.log(`[Fixer] === Fix Complete & Validated ===`);
   console.log(`[Fixer] Success: ${success}`);
   console.log(`[Fixer] Modified files: ${modifiedFiles.join(", ") || "none"}`);
