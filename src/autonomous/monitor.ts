@@ -18,6 +18,7 @@
 import cron from "node-cron";
 import { supabase } from "../lib/supabase.js";
 import { runDiagnosis } from "./diagnostician.js";
+import { fullRiskPipeline } from "./riskAnalyzer.js";
 import type { SystemError } from "./diagnostician.js";
 
 // ==========================================
@@ -68,6 +69,18 @@ async function runDiagnosisWithAI() {
     console.log(`✅ [Diagnosis] Model: ${result.model_used}`);
     if (result.affected_files.length > 0) {
       console.log(`✅ [Diagnosis] Affected files: ${result.affected_files.join(", ")}`);
+    }
+
+    // Run risk analysis on the diagnosis (Fase 4)
+    if (result.auto_fix_id) {
+      console.log("🔍 [RiskAnalyzer] Running risk analysis pipeline...");
+      const riskResult = await fullRiskPipeline(result, result.auto_fix_id);
+      console.log(`✅ [RiskAnalyzer] Risk level: ${riskResult.risk_level}`);
+      console.log(`✅ [RiskAnalyzer] Decision: ${riskResult.decision}`);
+      console.log(`✅ [RiskAnalyzer] Executed: ${riskResult.executed}`);
+      if (riskResult.executionError) {
+        console.error(`❌ [RiskAnalyzer] Execution error: ${riskResult.executionError}`);
+      }
     }
   } catch (err: any) {
     console.error(`❌ [Diagnosis] Unexpected error: ${err.message}`);

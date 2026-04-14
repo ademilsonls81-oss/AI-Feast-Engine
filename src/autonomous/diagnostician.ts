@@ -40,6 +40,7 @@ export interface DiagnosisResult {
   raw_ia_response?: string;
   model_used: string;
   error_ids: string[];
+  auto_fix_id?: string;  // ID of the persisted auto_fix record
 }
 
 // ==========================================
@@ -286,10 +287,11 @@ function getFallbackDiagnosis(errors: SystemError[]): DiagnosisResult {
 
 /**
  * Save diagnosis result to auto_fixes table.
+ * Returns the ID of the inserted auto_fix record.
  */
-async function persistDiagnosis(result: DiagnosisResult): Promise<void> {
+async function persistDiagnosis(result: DiagnosisResult): Promise<string | null> {
   try {
-    const { error } = await supabase.from("auto_fixes").insert({
+    const { data, error } = await supabase.from("auto_fixes").insert({
       error_ids: result.error_ids,
       cause: result.cause,
       fix: result.fix,
@@ -298,15 +300,18 @@ async function persistDiagnosis(result: DiagnosisResult): Promise<void> {
       status: "pending_review",
       raw_ia_response: result.raw_ia_response?.substring(0, 5000), // Limit size
       model_used: result.model_used
-    });
+    }).select("id").single();
 
     if (error) {
       console.error(`[Diagnostician] Failed to persist diagnosis: ${error.message}`);
-    } else {
-      console.log(`[Diagnostician] Diagnosis persisted with confidence: ${result.confidence}`);
+      return null;
     }
+    
+    console.log(`[Diagnostician] Diagnosis persisted with confidence: ${result.confidence}`);
+    return data?.id || null;
   } catch (err: any) {
     console.error(`[Diagnostician] Unexpected error persisting diagnosis: ${err.message}`);
+    return null;
   }
 }
 
@@ -318,7 +323,7 @@ async function persistDiagnosis(result: DiagnosisResult): Promise<void> {
  * Run autonomous diagnosis on recent errors.
  *
  * @param errors - Array of SystemError objects (last hour, max 5)
- * @returns DiagnosisResult with cause, fix, confidence, affected_files
+ * @returns DiagnosisResult with cause, fix, confidence, affected_files, auto_fix_id
  */
 export async function runDiagnosis(errors: SystemError[]): Promise<DiagnosisResult> {
   console.log("[Diagnostician] Starting AI diagnosis...");
@@ -332,8 +337,13 @@ export async function runDiagnosis(errors: SystemError[]): Promise<DiagnosisResu
   console.log(`[Diagnostician] Confidence: ${result.confidence}`);
   console.log(`[Diagnostician] Model: ${result.model_used}`);
 
-  // Persist to database
-  await persistDiagnosis(result);
+  // Persist to database and get the auto_fix_id
+  const autoFixId = await persistDiagnosis(result);
+  result.auto_fix_id = autoFixId || undefined;
+
+  if (autoFixId) {
+    console.log(`[Diagnostician] Auto-fix ID: ${autoFixId}`);
+  }
 
   return result;
 }
