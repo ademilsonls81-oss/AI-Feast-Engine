@@ -19,6 +19,7 @@ import cron from "node-cron";
 import { supabase } from "../lib/supabase.js";
 import { runDiagnosis } from "./diagnostician.js";
 import { fullRiskPipeline } from "./riskAnalyzer.js";
+import { applyFix } from "./fixer.js";
 import type { SystemError } from "./diagnostician.js";
 
 // ==========================================
@@ -80,6 +81,21 @@ async function runDiagnosisWithAI() {
       console.log(`✅ [RiskAnalyzer] Executed: ${riskResult.executed}`);
       if (riskResult.executionError) {
         console.error(`❌ [RiskAnalyzer] Execution error: ${riskResult.executionError}`);
+      }
+
+      // Fase 5: Auto-fix (only if decision was auto_apply)
+      if (riskResult.decision === "auto_apply") {
+        console.log("🔧 [Fixer] Decision is auto_apply — attempting automated fix...");
+        const fixResult = await applyFix(result, riskResult, result.auto_fix_id);
+        console.log(`✅ [Fixer] Action: ${fixResult.action}`);
+        console.log(`✅ [Fixer] Success: ${fixResult.success}`);
+        console.log(`✅ [Fixer] Modified files: ${fixResult.modifiedFiles.join(", ") || "none"}`);
+        if (fixResult.error) {
+          console.error(`❌ [Fixer] Error: ${fixResult.error}`);
+        }
+        if (fixResult.reason) {
+          console.log(`✅ [Fixer] Reason: ${fixResult.reason}`);
+        }
       }
     }
   } catch (err: any) {
