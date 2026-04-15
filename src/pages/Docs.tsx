@@ -1,6 +1,6 @@
 import React from "react";
 import { motion } from "motion/react";
-import { Copy, Terminal, Globe, Key, AlertCircle, CheckCircle2, ChevronRight, Database, Search, BarChart3, Puzzle } from "lucide-react";
+import { Copy, Terminal, Globe, Key, AlertCircle, CheckCircle2, ChevronRight, Database, Search, BarChart3, Puzzle, Check } from "lucide-react";
 import { cn } from "../lib/utils";
 import { Badge, Card } from "../components/ui";
 
@@ -9,8 +9,12 @@ const DOCS_ENABLED = true;
 export default function Docs() {
   if (!DOCS_ENABLED) return <div className="text-center py-20">API Documentation is temporarily disabled.</div>;
 
+  const [copiedText, setCopiedText] = React.useState<string | null>(null);
+
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
+    setCopiedText(text);
+    setTimeout(() => setCopiedText(null), 2000);
   };
 
   const BASE_URL = "https://api.aifeastengine.com/api";
@@ -56,8 +60,12 @@ export default function Docs() {
               <h3 className="text-sm font-bold text-gray-400 uppercase mb-4">Base API URL</h3>
               <div className="flex items-center justify-between bg-black/40 p-4 rounded-xl border border-white/5 group">
                 <code className="text-neon-cyan font-mono text-sm break-all">{BASE_URL}</code>
-                <button onClick={() => copyToClipboard(BASE_URL)} className="p-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <Copy className="w-4 h-4 text-gray-500 hover:text-white" />
+                <button onClick={() => copyToClipboard(BASE_URL)} className="p-2 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                  {copiedText === BASE_URL ? (
+                    <CheckCircle2 className="w-4 h-4 text-green-400" />
+                  ) : (
+                    <Copy className="w-4 h-4 text-gray-500 hover:text-white" />
+                  )}
                 </button>
               </div>
             </section>
@@ -115,15 +123,10 @@ export default function Docs() {
                     </tr>
                   </thead>
                   <tbody className="text-gray-300">
-                    <tr className="border-b border-white/5">
-                      <td className="py-4 font-mono text-neon-purple">key</td>
-                      <td className="py-4 text-xs text-gray-500 italic">string</td>
-                      <td className="py-4">Your API Key (required for authenticated requests)</td>
-                    </tr>
-                    <tr className="border-b border-white/5">
+                    <tr className="border-b border-white/10">
                       <td className="py-4 font-mono text-neon-purple">lang</td>
                       <td className="py-4 text-xs text-gray-500 italic">string</td>
-                      <td className="py-4">Language code: pt, en, es, fr, de, it, ja, ko, zh, ru, ar. Default: pt</td>
+                      <td className="py-4"> Language code: pt, en, es, fr, de, it, ja, ko, zh, ru, ar. Default: pt</td>
                     </tr>
                     <tr className="border-b border-white/5">
                       <td className="py-4 font-mono text-neon-purple">limit</td>
@@ -380,7 +383,7 @@ print(response.json())`}
                   { code: "401 Unauthorized", desc: "API Key is missing or invalid. Include X-API-Key header." },
                   { code: "402 Payment Required", desc: "Usage limit reached for the current plan. Upgrade to Pro." },
                   { code: "429 Too Many Requests", desc: "Rate limit exceeded. Please slow down. Retry after delay." },
-                  { code: "500 Internal Error", desc: "Something went wrong on our end. Check /status for health." },
+                  { code: "500 Internal Error", desc: "Something went wrong on our end. Check " }, { code: "500 Internal Error", desc: "Something went wrong. GET /api/health to check status." },
                 ].map((e, index) => (
                   <div key={index} className="p-4 bg-dark-card border border-white/10 rounded-xl">
                     <div className="text-red-400 font-bold text-sm mb-1">{e.code}</div>

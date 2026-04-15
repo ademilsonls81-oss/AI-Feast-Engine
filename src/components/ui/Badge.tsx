@@ -8,6 +8,9 @@ export type BadgeVariant =
   | "risk-low"
   | "risk-medium"
   | "risk-high"
+  | "score-high"
+  | "score-medium"
+  | "score-low"
   | "status-published"
   | "status-processing"
   | "status-error"
@@ -45,6 +48,12 @@ const variantStyles: Record<BadgeVariant, string> = {
     "px-2 py-0.5 rounded text-[9px] font-bold text-yellow-400 bg-yellow-500/10 border border-yellow-500/20",
   "risk-high":
     "px-2 py-0.5 rounded text-[9px] font-bold text-red-400 bg-red-500/10 border border-red-500/20",
+  "score-high":
+    "px-2 py-0.5 rounded text-[9px] font-bold text-green-400 bg-green-500/20 border border-green-500/30",
+  "score-medium":
+    "px-2 py-0.5 rounded text-[9px] font-bold text-yellow-400 bg-yellow-500/20 border border-yellow-500/30",
+  "score-low":
+    "px-2 py-0.5 rounded text-[9px] font-bold text-blue-400 bg-blue-500/20 border border-blue-500/30",
   "status-published":
     "px-2 py-0.5 rounded text-[8px] font-bold uppercase bg-green-500/10 text-green-400",
   "status-processing":
@@ -87,6 +96,9 @@ const variantIcon: Record<BadgeVariant, React.ReactNode | null> = {
   "risk-low": null,
   "risk-medium": <AlertTriangle className="w-3 h-3" />,
   "risk-high": <AlertCircle className="w-3 h-3" />,
+  "score-high": <Shield className="w-2.5 h-2.5" />,
+  "score-medium": <AlertTriangle className="w-3 h-3" />,
+  "score-low": null,
   "status-published": null,
   "status-processing": null,
   "status-error": null,
@@ -113,6 +125,9 @@ const defaultLabel: Record<BadgeVariant, string> = {
   "risk-low": "LOW",
   "risk-medium": "MEDIUM",
   "risk-high": "HIGH",
+  "score-high": "HIGH",
+  "score-medium": "MEDIUM",
+  "score-low": "LOW",
   "status-published": "PUBLISHED",
   "status-processing": "PROCESSING",
   "status-error": "ERROR",
@@ -154,11 +169,19 @@ export function Badge({ variant, label, className, children }: BadgeProps) {
   );
 }
 
-/** Badge de risco dinâmico — recebe nível como string */
-export function RiskBadge({ level, className }: { level: string; className?: string }) {
+/** Badge de risco dinâmico — recebe score (0-1) e retorna risco baseado em:
+ * HIGH: 90-100% (verde)
+ * MEDIUM: 70-89% (amarelo)
+ * LOW: <70% (vermelho)
+ * 
+ * Também pode usar label customizada (ex: "95%")
+ */
+export function RiskBadge({ score, className, showPercent = false }: { score: number; className?: string; showPercent?: boolean }) {
+  const threshold = score >= 0.9 ? "high" : score >= 0.7 ? "medium" : "low";
   const variant: BadgeVariant =
-    level === "low" ? "risk-low" : level === "medium" ? "risk-medium" : "risk-high";
-  return <Badge variant={variant} className={className} />;
+    threshold === "low" ? "score-low" : threshold === "medium" ? "score-medium" : "score-high";
+  const label = showPercent ? `${Math.round(score * 100)}%` : threshold.toUpperCase();
+  return <Badge variant={variant} label={label} className={className} />;
 }
 
 /** Badge de status dinâmico — recebe status como string */

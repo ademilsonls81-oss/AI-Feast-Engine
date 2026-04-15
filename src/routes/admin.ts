@@ -1,5 +1,5 @@
 import { Router, Request, Response } from "express";
-import { supabase } from "../lib/supabase.js";
+import { supabase } from "../lib/supabaseClient.js";
 import { checkAdmin } from "../middleware/auth.js";
 import { queueService } from "../services/queueService.js";
 import { logAuditAction } from "../middleware/auditLog.js";
@@ -86,6 +86,47 @@ router.get("/feeds/summary", checkAdmin, async (req, res) => {
   }
 });
 
+// GET /api/admin/feeds/health - Health de todos os feeds
+router.get("/feeds/health", checkAdmin, async (req, res) => {
+  try {
+    const { data: feeds } = await supabase.from("feeds").select("*");
+    const { data: health } = await supabase.from("feed_health").select("*");
+
+    const healthMap = new Map((health || []).map((h: any) => [h.feed_id, h]));
+
+    const enrichedFeeds = (feeds || []).map((feed: any) => {
+      const h = healthMap.get(feed.id);
+      return {
+        ...feed,
+        health_score: h?.health_score ?? 50,
+        last_status: h?.last_status ?? "unknown",
+        last_latency_ms: h?.last_latency_ms,
+        last_error: h?.last_error,
+        last_checked_at: h?.last_checked_at,
+        consecutive_errors: h?.consecutive_errors ?? 0,
+        success_count: h?.success_count ?? 0,
+        error_count: h?.error_count ?? 0
+      };
+    }).sort((a: any, b: any) => a.health_score - b.health_score);
+
+    const failed = enrichedFeeds.filter((f: any) => f.last_status === "error" || !f.last_status);
+    const healthy = enrichedFeeds.filter((f: any) => f.last_status === "success");
+    const unhealthy = enrichedFeeds.filter((f: any) => f.health_score < 50);
+
+    res.json({
+      feeds: enrichedFeeds,
+      summary: {
+        total: enrichedFeeds.length,
+        healthy: healthy.length,
+        failed: failed.length,
+        unhealthy: unhealthy.length
+      }
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // PATCH /api/admin/feeds/:id
 router.patch("/feeds/:id", checkAdmin, async (req, res) => {
   const { category } = req.body;
@@ -99,6 +140,12 @@ router.patch("/feeds/:id", checkAdmin, async (req, res) => {
   logAuditAction((req as any).user.id, "UPDATE_FEED_CATEGORY", req, { feed_id: req.params.id, category });
   res.json(data);
 });
+
+function getAiKey(): string {
+  const key = process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY;
+  if (!key) throw new Error("MISSING REQUIRED ENV: OPENAI_API_KEY or GROQ_API_KEY");
+  return key;
+}
 
 // POST /api/admin/skills/generate
 router.post("/skills/generate", checkAdmin, async (req, res) => {
@@ -118,7 +165,7 @@ Return ONLY this JSON object with ALL fields (no markdown, no extra text):
 {"id":"snake_case","name":"Title","slug":"kebab","desc":"short","long_desc":"medium","category":"analysis","tags":["a","b","c"],"risk":"low","install":"npx aifeast x","run":"npx aifeast run x"}`;
 
     const AI_BASE_URL = process.env.OPENAI_BASE_URL || "https://api.groq.com/openai/v1";
-    const AI_API_KEY = process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY || "";
+    const AI_API_KEY = getAiKey();
 
     const groqResponse = await fetch(`${AI_BASE_URL}/chat/completions`, {
       method: "POST",
@@ -260,7 +307,7 @@ router.post("/skills/validate-batch", checkAdmin, async (req, res) => {
     const { normalizeSkill } = await import("../services/skillNormalizer.js");
     const { validateSkill } = await import("../services/skillValidator.js");
 
-    const groqApiKey = process.env.GROQ_API_KEY || "";
+    const groqApiKey = getAiKey();
     const requestedRepos = (req.body as any)?.repos as string[] | undefined;
 
     let repos: any[];
@@ -328,7 +375,7 @@ router.post("/skills/import", checkAdmin, async (req, res) => {
     const { validateSkill } = await import("../services/skillValidator.js");
     const { importSkills } = await import("../services/skillImporter.js");
 
-    const groqApiKey = process.env.GROQ_API_KEY || "";
+    const groqApiKey = getAiKey();
 
     console.log(`[Import] Starting pipeline${dryRun ? " (DRY RUN)" : ""}...`);
 
@@ -702,6 +749,96 @@ router.get("/system/metrics", checkAdmin, async (_req, res) => {
     });
   } catch (err: any) {
     console.error("[Admin/System] Error fetching metrics:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/admin/feeds - Lista todos os feeds
+router.get("/feeds", checkAdmin, async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit as string) || 50;
+    const offset = parseInt(req.query.offset as string) || 0;
+
+    const { data, error, count } = await supabase
+      .from("feeds")
+      .select("*", { count: "exact" })
+      .order("created_at", { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (error) return res.status(500).json({ error: error.message });
+
+    res.json({
+      feeds: data || [],
+      total: count || 0,
+      limit,
+      offset
+    });
+  } catch (err: any) {
+    console.error("[Admin/Feeds] Error fetching feeds:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/admin/users - Lista todos os usuários
+router.get("/users", checkAdmin, async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit as string) || 50;
+    const offset = parseInt(req.query.offset as string) || 0;
+    const plan = req.query.plan as string;
+
+    let query = supabase
+      .from("users")
+      .select("id, email, plan, usage_count, role, created_at", { count: "exact" })
+      .order("created_at", { ascending: false });
+
+    if (plan) {
+      query = query.eq("plan", plan);
+    }
+
+    const { data, error, count } = await query.range(offset, offset + limit - 1);
+
+    if (error) return res.status(500).json({ error: error.message });
+
+    res.json({
+      users: data || [],
+      total: count || 0,
+      limit,
+      offset
+    });
+  } catch (err: any) {
+    console.error("[Admin/Users] Error fetching users:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/admin/audit-logs - Logs de auditoria
+router.get("/audit-logs", checkAdmin, async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit as string) || 50;
+    const offset = parseInt(req.query.offset as string) || 0;
+    const userId = req.query.user_id as string;
+
+    let query = supabase
+      .from("audit_logs")
+      .select("*", { count: "exact" })
+      .order("created_at", { ascending: false });
+
+    if (userId) {
+      query = query.eq("user_id", userId);
+    }
+
+    const { data, error, count } = await query.range(offset, offset + limit - 1);
+
+    if (error) return res.status(500).json({ error: error.message });
+
+    res.json({
+      logs: data || [],
+      total: count || 0,
+      limit,
+      offset
+    });
+  } catch (err: any) {
+    console.error("[Admin/AuditLogs] Error fetching audit logs:", err.message);
     res.status(500).json({ error: err.message });
   }
 });

@@ -3,7 +3,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { supabase, signInWithGoogle } from "../lib/supabaseClient";
 import { motion } from "motion/react";
 import { Key, BarChart3, History, Copy, Check, Zap, AlertCircle, RefreshCw, Layers, Database, Eye, EyeOff, Settings } from "lucide-react";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import api from "../lib/api";
 import { Post, AppStats } from "../types";
 import { StatusBadge, EmptyState, Button, Card, Spinner } from "../components/ui";
@@ -12,7 +12,10 @@ import { WelcomeModal, FirstRunBanner } from "../components/onboarding";
 export default function Dashboard() {
   const { user, profile, loading, refreshProfile } = useAuth();
   const [logs, setLogs] = useState<any[]>([]);
+  const [logsByDay, setLogsByDay] = useState<{ date: string; count: number }[]>([]);
+  const [logsError, setLogsError] = useState<string | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
+  const [postsError, setPostsError] = useState<string | null>(null);
   const [stats, setStats] = useState<AppStats | null>(null);
   const [copied, setCopied] = useState(false);
   const [isRotating, setIsRotating] = useState(false);
@@ -54,8 +57,16 @@ export default function Dashboard() {
       }
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+      
+      // Show toast-like feedback
+      const btn = document.querySelector('[title="Copy to clipboard"]');
+      if (btn) {
+        btn.classList.add('bg-green-500/20');
+        setTimeout(() => btn.classList.remove('bg-green-500/20'), 500);
+      }
     } catch (err) {
       console.error("Copy failed:", err);
+      alert("Failed to copy. Please copy manually.");
       // Last resort fallback
       try {
         const textarea = document.createElement("textarea");
@@ -125,24 +136,47 @@ export default function Dashboard() {
           setLogs([]);
         }
       } else {
-        setLogs(data || []);
+        const logsData = data || [];
+        setLogs(logsData);
+        
+        // Group by day for last 7 days
+        const now = new Date();
+        const dayMap: Record<string, number> = {};
+        for (let i = 6; i >= 0; i--) {
+          const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
+          const key = d.toLocaleDateString('pt-BR');
+          dayMap[key] = 0;
+        }
+        logsData.forEach((log: any) => {
+          const d = new Date(log.timestamp);
+          const key = d.toLocaleDateString('pt-BR');
+          if (dayMap[key] !== undefined) {
+            dayMap[key]++;
+          }
+        });
+        const grouped = Object.entries(dayMap).map(([date, count]) => ({ date, count }));
+        setLogsByDay(grouped);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("[Dashboard] fetchLogs exception:", err);
+      setLogsError(err.message || "Erro ao carregar logs");
       setLogs([]);
     }
   }
 
   async function fetchPosts() {
     try {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('posts')
         .select('*')
         .order('created_at', { ascending: false })
         .limit(5);
+      if (error) throw error;
       setPosts((data as Post[]) || []);
-    } catch (err) {
+      setPostsError(null);
+    } catch (err: any) {
       console.error("[Dashboard] fetchPosts error:", err);
+      setPostsError(err.message || "Erro ao carregar posts");
       setPosts([]);
     }
   }
@@ -370,7 +404,12 @@ export default function Dashboard() {
                   >
                     {showKey ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                   </button>
-                  <button onClick={() => copyToClipboard(profile.api_key)} className="p-2 hover:bg-white/5 rounded-lg transition-colors" title="Copy to clipboard">
+                  <button 
+                    onClick={() => profile?.api_key && copyToClipboard(profile.api_key)} 
+                    disabled={!profile?.api_key}
+                    className="p-2 hover:bg-white/5 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed" 
+                    title={profile?.api_key ? "Copy to clipboard" : "No API key to copy"}
+                  >
                     {copied ? <Check className="w-5 h-5 text-green-400" /> : <Copy className="w-5 h-5 text-gray-400" />}
                   </button>
                 </div>
@@ -474,26 +513,42 @@ export default function Dashboard() {
             </div>
 
             <div className="h-48 w-full">
-              {logs.length > 0 ? (
+              {logsError ? (
+                <EmptyState title="Erro" description={logsError} />
+              ) : logs.length === 0 ? (
+                <EmptyState title="Nenhum uso registrado" description="Suas requisições aparecerão aqui." />
+              ) : (
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={[...logs].reverse()}>
+                  <AreaChart data={logsByDay}>
+                    <defs>
+                      <linearGradient id="colorCost" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#a855f7" stopOpacity={0.3}/>
+                        <stop offset="95%" stopColor="#a855f7" stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="#222" vertical={false} />
-                    <XAxis dataKey="timestamp" hide />
+                    <XAxis 
+                      dataKey="date" 
+                      tick={{ fontSize: 10, fill: '#666' }} 
+                      tickLine={false}
+                      axisLine={{ stroke: '#333' }}
+                    />
                     <YAxis hide />
                     <Tooltip 
                       contentStyle={{ backgroundColor: '#000', border: '1px solid #333' }}
-                      labelFormatter={(label) => new Date(label).toLocaleString()}
-                      formatter={(value: any) => [`$${value}`, 'Cost']}
+                      labelFormatter={(label) => new Date(label).toLocaleDateString('pt-BR')}
+                      formatter={(value: any) => [`${value} requests`, 'Usage']}
                     />
-                    <Line type="monotone" dataKey="cost" stroke="#a855f7" strokeWidth={2} dot={false} />
-                  </LineChart>
+                    <Area 
+                      type="monotone" 
+                      dataKey="count" 
+                      stroke="#a855f7" 
+                      strokeWidth={2}
+                      fillOpacity={1}
+                      fill="url(#colorCost)" 
+                    />
+                  </AreaChart>
                 </ResponsiveContainer>
-              ) : (
-                <EmptyState
-                  context="dashboard"
-                  onAction={() => window.open('/docs', '_blank')}
-                  ctaLabel="View API docs"
-                />
               )}
             </div>
           </motion.div>

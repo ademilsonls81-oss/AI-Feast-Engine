@@ -11,11 +11,12 @@ import crypto from "crypto";
 import { WebSocketServer, WebSocket } from "ws";
 import * as Sentry from "@sentry/node";
 
-import { supabase } from "./src/lib/supabase.js";
+import { supabase } from "./src/lib/supabaseClient.js";
 import { queueService } from "./src/services/queueService.js";
 import { globalIpLimit, apiKeyRateLimit } from "./src/middleware/rateLimit.js";
 import adminRouter from "./src/routes/admin.js";
 import skillsRouter from "./src/routes/skills.js";
+import feedsRouter from "./src/routes/feeds.js";
 import publicRouter from "./src/routes/public.js";
 import { startCronJob } from "./src/services/skillScheduler.js";
 import { startMonthlyResetJob } from "./src/services/monthlyReset.js";
@@ -52,7 +53,24 @@ if (process.env.SENTRY_DSN) {
   console.log(">>> Sentry DSN not configured, error tracking disabled");
 }
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "sk_test_mock", { apiVersion: "2026-03-25.dahlia" as any });
+// ==========================================
+// ENV VALIDATION
+// ==========================================
+function requireEnv(varName: string, description: string): string {
+  const value = process.env[varName];
+  if (!value) throw new Error(`MISSING REQUIRED ENV: ${varName} - ${description}`);
+  return value;
+}
+
+function requireAiKey(): string {
+  return process.env.OPENAI_API_KEY 
+    || process.env.GROQ_API_KEY 
+    || (() => { throw new Error("MISSING REQUIRED ENV: OPENAI_API_KEY or GROQ_API_KEY"); })();
+}
+
+const stripeSecretKey = requireEnv("STRIPE_SECRET_KEY", "Required for payments");
+const stripe = new Stripe(stripeSecretKey, { apiVersion: "2026-03-25.dahlia" as any });
+console.log(">>> Stripe initialized");
 
 // ==========================================
 // CACHE LAYER (Em memória)
@@ -143,17 +161,21 @@ app.post("/api/stripe-webhook", express.raw({ type: "application/json" }), async
         return res.json({ received: true, error: "missing client_reference_id" });
       }
 
-      const { error } = await supabase.from("users").update({
-        plan: "pro",
-        stripe_customer_id: session.customer,
-        stripe_subscription_id: session.subscription,
-        rate_limit: 100
-      }).eq("id", userId);
+      try {
+        const { error } = await supabase.from("users").update({
+          plan: "pro",
+          stripe_customer_id: session.customer,
+          stripe_subscription_id: session.subscription,
+          rate_limit: 100
+        }).eq("id", userId);
 
-      if (error) {
-        console.error(`❌ Failed to update user ${userId}: ${error.message}`);
-      } else {
-        console.log(`✅ User ${userId} upgraded to PRO successfully`);
+        if (error) {
+          console.error(`❌ Failed to update user ${userId}: ${error.message}`);
+        } else {
+          console.log(`✅ User ${userId} upgraded to PRO successfully`);
+        }
+      } catch (dbErr: any) {
+        console.error(`❌ Database error on upgrade: ${dbErr.message}`);
       }
       break;
     }
@@ -198,12 +220,24 @@ app.use((req, res, next) => {
 // ==========================================
 app.use("/api/admin", adminRouter);
 app.use("/api/skills", skillsRouter);
+app.use("/api/feeds", feedsRouter);
 app.use("/api", publicRouter); // /api/verified, /api/search, /api/feed, /api/stats
 
 // ==========================================
 // HEALTH
 // ==========================================
 app.get("/api/health", (req, res) => res.json({ status: "alive" }));
+
+// ==========================================
+// DEBUG - Generate test API key (DEV ONLY)
+// ==========================================
+app.get("/api/debug/test-key", async (req, res) => {
+  if (process.env.NODE_ENV === "production") {
+    return res.status(403).json({ error: "Not available in production" });
+  }
+  const newKey = "af_" + crypto.randomBytes(24).toString("hex");
+  res.json({ api_key: newKey });
+});
 
 // ==========================================
 // CHAT
@@ -222,8 +256,13 @@ app.post("/api/chat", apiKeyRateLimit, async (req, res) => {
   const apiKey = req.header("X-API-Key");
   if (!apiKey) return res.status(401).json({ error: "API Key required — use header X-API-Key" });
 
-  const { data: user } = await supabase.from("users").select("*").eq("api_key", apiKey).single();
-  if (!user) return res.status(403).json({ error: "Invalid API Key" });
+  let user;
+  try {
+    const { data, error } = await supabase.from("users").select("*").eq("api_key", apiKey).single();
+    if (error || !data) return res.status(403).json({ error: "Invalid API Key" });
+    user = data;
+  } catch (err: any) { return res.status(500).json({ error: "Auth check failed" }); }
+
   if (user.plan === "free" && user.usage_count >= 100) return res.status(429).json({ error: "Free limit reached (100/mo)" });
 
   const { model, messages, temperature = 0.7 } = req.body;
@@ -338,52 +377,252 @@ app.get("/sitemap.xml", async (req, res) => {
 });
 
 // ==========================================
-// RSS INGESTION LOOP
+// RSS INGESTION LOOP (REFACTORED)
 // ==========================================
+interface ParseResult {
+  posts: any[];
+  success: boolean;
+  latencyMs: number;
+  error?: string;
+  itemsCount: number;
+}
+
+async function parseFeed(feed: any, itemsLimit: number): Promise<ParseResult> {
+  const startTime = Date.now();
+  try {
+    const feedData = await parser.parseURL(feed.url);
+    const latencyMs = Date.now() - startTime;
+    const posts = (feedData.items.slice(0, itemsLimit) || []).map(item => ({
+      title: item.title,
+      link: item.link,
+      pub_date: item.pubDate ? new Date(item.pubDate).toISOString() : new Date().toISOString(),
+      content_raw: (item as any).contentEncoded || item.content || item.contentSnippet || "",
+      source_id: feed.id,
+      category: feed.category || "General",
+      status: "pending"
+    }));
+    return { posts, success: true, latencyMs, itemsCount: posts.length };
+  } catch (err: any) {
+    const latencyMs = Date.now() - startTime;
+    const errorMsg = err.message || "Parse failed";
+    
+    // Log error to system_errors table (continue processing other feeds)
+    try {
+      await supabase.from("system_errors").insert({
+        error_type: "RSS_PARSE_ERROR",
+        source: `feed:${feed.id}`,
+        message: errorMsg,
+        severity: "warning",
+        endpoint: feed.url,
+        retry_count: 0,
+        resolved: false,
+        metadata: { feed_name: feed.name, url: feed.url }
+      });
+    } catch (logErr) {
+      console.error(`Failed to log RSS error: ${logErr}`);
+    }
+    
+    // Return empty result (allow other feeds to continue)
+    return { posts: [], success: false, latencyMs, error: errorMsg, itemsCount: 0 };
+  }
+}
+
+function calculateHealthScore(successRate: number, avgLatencyMs: number, lastSuccessAt: Date | null): number {
+  let score = successRate * 50;
+  if (avgLatencyMs < 2000) score += 25;
+  else if (avgLatencyMs < 5000) score += 15;
+  else if (avgLatencyMs < 10000) score += 5;
+
+  if (lastSuccessAt) {
+    const hoursSinceLastSuccess = (Date.now() - lastSuccessAt.getTime()) / (1000 * 60 * 60);
+    if (hoursSinceLastSuccess < 1) score += 25;
+    else if (hoursSinceLastSuccess < 6) score += 15;
+    else if (hoursSinceLastSuccess < 24) score += 5;
+  }
+
+  return Math.min(100, Math.round(score));
+}
+
+async function updateFeedHealth(
+  feedId: string,
+  result: ParseResult,
+  isLastAttempt: boolean = false
+): Promise<void> {
+  try {
+    const healthData: any = {
+      feed_id: feedId,
+      last_latency_ms: result.latencyMs,
+      last_status: result.success ? "success" : "error",
+      last_error: result.error,
+      last_success_at: result.success ? new Date().toISOString() : null,
+      last_checked_at: new Date().toISOString(),
+      items_fetched: result.itemsCount,
+      updated_at: new Date().toISOString()
+    };
+
+    const { data: existing } = await supabase
+      .from("feed_health")
+      .select("*")
+      .eq("feed_id", feedId)
+      .single();
+
+    if (existing) {
+      const newSuccessCount = result.success ? existing.success_count + 1 : existing.success_count;
+      const newErrorCount = result.success ? existing.error_count : existing.error_count + 1;
+      const newTotalLatency = existing.total_latency_ms + result.latencyMs;
+      const newConsecutiveErrors = result.success ? 0 : existing.consecutive_errors + 1;
+
+      const avgLatency = Math.round(newTotalLatency / (newSuccessCount + newErrorCount));
+      const successRate = newSuccessCount / (newSuccessCount + newErrorCount || 1);
+
+      let score = successRate * 50;
+      if (avgLatency < 2000) score += 25;
+      else if (avgLatency < 5000) score += 15;
+      else if (avgLatency < 10000) score += 5;
+      if (newConsecutiveErrors === 0) score += 25;
+
+      healthData.success_count = newSuccessCount;
+      healthData.error_count = newErrorCount;
+      healthData.total_latency_ms = newTotalLatency;
+      healthData.avg_latency_ms = avgLatency;
+      healthData.consecutive_errors = newConsecutiveErrors;
+      healthData.health_score = Math.min(100, Math.round(score));
+    } else {
+      healthData.success_count = result.success ? 1 : 0;
+      healthData.error_count = result.success ? 0 : 1;
+      healthData.total_latency_ms = result.latencyMs;
+      healthData.avg_latency_ms = result.latencyMs;
+      healthData.consecutive_errors = result.success ? 0 : 1;
+      healthData.health_score = result.success ? 75 : 25;
+    }
+
+    await supabase.from("feed_health").upsert(healthData, { onConflict: "feed_id" });
+  } catch (err: any) {
+    console.error(`Failed to update feed health: ${err.message}`);
+  }
+}
+
+async function bulkInsertPosts(posts: any[]): Promise<number> {
+  if (posts.length === 0) return 0;
+  try {
+    const { error } = await supabase.from("posts").insert(posts);
+    if (error) {
+      console.error(`Bulk insert error: ${error.message}`);
+      return 0;
+    }
+    return posts.length;
+  } catch (err: any) {
+    console.error(`Bulk insert exception: ${err.message}`);
+    return 0;
+  }
+}
+
+async function processCategory(
+  category: string,
+  feedsInCategory: any[],
+  existingLinks: Set<string>,
+  itemsPerFeed: number
+): Promise<number> {
+  const parsePromises = feedsInCategory.map(feed => parseFeed(feed, itemsPerFeed));
+  const parseResults = await Promise.allSettled(parsePromises);
+
+  const newPosts: any[] = [];
+  for (let i = 0; i < parseResults.length; i++) {
+    const result = parseResults[i];
+    if (result.status === "fulfilled") {
+      const parseResult = result.value as ParseResult;
+      const feed = feedsInCategory[i];
+      if (feed?.id) await updateFeedHealth(feed.id, parseResult, true);
+
+      for (const item of parseResult.posts) {
+        if (!existingLinks.has(item.link)) {
+          existingLinks.add(item.link);
+          newPosts.push(item);
+        }
+      }
+    }
+  }
+
+  if (newPosts.length > 0) {
+    return bulkInsertPosts(newPosts);
+  }
+  return 0;
+}
+
 async function runIngestion() {
   console.log(">>> [RSS] Starting Ingestion at " + new Date().toISOString());
   try {
-    const { data: feeds } = await supabase.from("feeds").select("*");
+    const [{ data: feeds }, { data: healthData }, { data: existingPosts }, { data: categoryStats }] = await Promise.all([
+      supabase.from("feeds").select("*"),
+      supabase.from("feed_health").select("feed_id, last_checked_at"),
+      supabase.from("posts").select("link"),
+      supabase.from("posts").select("category, status").eq("status", "published")
+    ]);
     if (!feeds) return;
 
-    const { data: postsData } = await supabase.from("posts").select("category");
+    // Build health lookup for cache check
+    const healthMap = new Map<string, any>();
+    healthData?.forEach((h: any) => healthMap.set(h.feed_id, h));
+
+    // Filter feeds to process (skip if checked within 15min)
+    const feedsToProcess = feeds.filter((f: any) => shouldScanFeed(healthMap.get(f.id)?.last_checked_at));
+    
+    if (feedsToProcess.length === 0) {
+      console.log(`>>> [RSS] All feeds cached, skipping.`);
+      return;
+    }
+
+    const existingLinks = new Set((existingPosts || []).map((p: any) => p.link));
+    console.log(`>>> [RSS] Processing ${feedsToProcess.length}/${feeds.length} feeds (cache applied)`);
+
     const categoryCounts: Record<string, number> = {};
-    if (postsData) postsData.forEach((p: any) => { const cat = (p.category || "General").toLowerCase(); categoryCounts[cat] = (categoryCounts[cat] || 0) + 1; });
+    (categoryStats || []).forEach((p: any) => {
+      const cat = (p.category || "General").toLowerCase();
+      categoryCounts[cat] = (categoryCounts[cat] || 0) + 1;
+    });
+
+    const feedsByCategory: Record<string, any[]> = {};
+    feedsToProcess.forEach((f: any) => {
+      const cat = f.category || "General";
+      if (!feedsByCategory[cat]) feedsByCategory[cat] = [];
+      feedsByCategory[cat].push(f);
+    });
 
     const MAX_POSTS_PER_CATEGORY = 200;
     const MIN_POSTS_PER_CATEGORY = 30;
-    const feedsByCategory: Record<string, typeof feeds> = {};
-    feeds.forEach(f => { const cat = f.category || "General"; if (!feedsByCategory[cat]) feedsByCategory[cat] = []; feedsByCategory[cat].push(f); });
 
-    const sortedCategories = Object.keys(feedsByCategory).sort((a, b) => (categoryCounts[a] || 0) - (categoryCounts[b] || 0));
-    let totalIngested = 0;
+    const categoriesToProcess = Object.keys(feedsByCategory).filter(cat => {
+      const count = categoryCounts[cat] || 0;
+      return count < MAX_POSTS_PER_CATEGORY;
+    }).sort((a, b) => (categoryCounts[a] || 0) - (categoryCounts[b] || 0));
 
-    for (const category of sortedCategories) {
+    const categoryTasks = categoriesToProcess.map(category => {
       const currentCount = categoryCounts[category] || 0;
-      if (currentCount >= MAX_POSTS_PER_CATEGORY) continue;
-
       let itemsPerFeed = 5;
       if (currentCount < MIN_POSTS_PER_CATEGORY) itemsPerFeed = 15;
       else if (currentCount > MAX_POSTS_PER_CATEGORY * 0.75) itemsPerFeed = 2;
 
-      for (const feed of (feedsByCategory[category] || [])) {
-        try {
-          const feedData = await parser.parseURL(feed.url);
-          for (const item of feedData.items.slice(0, itemsPerFeed)) {
-            const { data: exists } = await supabase.from("posts").select("id").eq("link", item.link).single();
-            if (exists) continue;
-            const rawContent = (item as any).contentEncoded || item.content || item.contentSnippet || "";
-            const { error } = await supabase.from("posts").insert({ title: item.title, link: item.link, pub_date: item.pubDate ? new Date(item.pubDate).toISOString() : new Date().toISOString(), content_raw: rawContent, source_id: feed.id, category, status: "pending" });
-            if (!error) totalIngested++;
-          }
-        } catch (err: any) { console.error(`Failed to parse feed ${feed.url}: ${err.message}`); }
-      }
-    }
-    console.log(`>>> [RSS] Ingestion complete. Total new posts: ${totalIngested}`);
+      return processCategory(
+        category,
+        feedsByCategory[category] || [],
+        existingLinks,
+        itemsPerFeed
+      );
+    });
+
+    const results = await Promise.allSettled(categoryTasks);
+    const totalInserted = results.reduce((sum, r) => sum + (r.status === "fulfilled" ? r.value : 0), 0);
+
+    console.log(`>>> [RSS] Ingestion complete. Total: ${totalInserted} posts`);
   } catch (err: any) { console.error("Ingestion Loop Error:", err.message); }
 }
 
-setInterval(runIngestion, 30*60*1000);
+// Check if feed should be processed based on last_scan (15min cache)
+function shouldScanFeed(lastCheckedAt: string | null): boolean {
+  if (!lastCheckedAt) return true;
+  const FIFTEEN_MINUTES = 15 * 60 * 1000;
+  return (Date.now() - new Date(lastCheckedAt).getTime()) > FIFTEEN_MINUTES;
+}
 
 // Heartbeat
 setInterval(async () => {

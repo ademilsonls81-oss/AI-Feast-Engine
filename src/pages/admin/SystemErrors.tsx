@@ -18,18 +18,21 @@ interface SystemError {
   source: string;
   message: string;
   stack_trace: string | null;
-  severity: "critical" | "high" | "medium" | "low";
+  severity: "info" | "warning" | "error" | "critical";
   endpoint: string | null;
   http_status: number | null;
+  retry_count: number;
+  resolved: boolean;
+  metadata: Record<string, any>;
   created_at: string;
 }
 
 const severities = [
-  { value: "all", label: "Todos", icon: AlertCircle, color: "text-gray-400" },
-  { value: "critical", label: "Crítico", icon: XCircle, color: "text-red-500" },
-  { value: "high", label: "Alto", icon: AlertOctagon, color: "text-orange-500" },
-  { value: "medium", label: "Médio", icon: AlertTriangle, color: "text-yellow-500" },
-  { value: "low", label: "Baixo", icon: AlertCircle, color: "text-blue-500" }
+  { value: "all", label: "Todos" },
+  { value: "critical", label: "Crítico" },
+  { value: "error", label: "Erro" },
+  { value: "warning", label: "Aviso" },
+  { value: "info", label: "Info" },
 ];
 
 export default function SystemErrors() {
@@ -50,9 +53,9 @@ export default function SystemErrors() {
     try {
       setLoadingData(true);
       const { data, error } = await supabase
-        .from('system_errors')
-        .select('*')
-        .order('created_at', { ascending: false })
+        .from("system_errors")
+        .select("*")
+        .order("created_at", { ascending: false })
         .limit(100);
 
       if (error) {
@@ -69,19 +72,39 @@ export default function SystemErrors() {
     }
   }
 
+  async function resolveError(errorId: string) {
+    try {
+      const { error } = await supabase
+        .from("system_errors")
+        .update({ resolved: true })
+        .eq("id", errorId);
+
+      if (error) {
+        console.error("[SystemErrors] Resolve error:", error);
+        return;
+      }
+
+      setErrors((prev) =>
+        prev.map((e) => (e.id === errorId ? { ...e, resolved: true } : e))
+      );
+    } catch (err) {
+      console.error("[SystemErrors] Resolve exception:", err);
+    }
+  }
+
   const filteredErrors = filter === "all" 
     ? errors 
     : errors.filter(e => e.severity === filter);
 
-  const getSeverityIcon = (severity: string) => {
-    switch (severity) {
-      case "critical": return <XCircle className="w-5 h-5 text-red-500" />;
-      case "high": return <AlertOctagon className="w-5 h-5 text-orange-500" />;
-      case "medium": return <AlertTriangle className="w-5 h-5 text-yellow-500" />;
-      case "low": return <AlertCircle className="w-5 h-5 text-blue-500" />;
-      default: return <AlertCircle className="w-5 h-5 text-gray-400" />;
-    }
-  };
+const getSeverityIcon = (severity: string) => {
+  switch (severity) {
+    case "critical": return <XCircle className="w-5 h-5 text-red-500" />;
+    case "error": return <AlertOctagon className="w-5 h-5 text-orange-500" />;
+    case "warning": return <AlertTriangle className="w-5 h-5 text-yellow-500" />;
+    case "info": return <AlertCircle className="w-5 h-5 text-blue-500" />;
+    default: return <AlertCircle className="w-5 h-5 text-gray-400" />;
+  }
+};
 
   const formatTimestamp = (dateStr: string) => {
     const date = new Date(dateStr);
@@ -134,7 +157,6 @@ export default function SystemErrors() {
         {/* Filters */}
         <div className="flex flex-wrap items-center gap-3 mb-6">
           {severities.map((sev) => {
-            const Icon = sev.icon;
             const isActive = filter === sev.value;
             return (
               <button
@@ -146,7 +168,6 @@ export default function SystemErrors() {
                     : "bg-dark-card border border-white/10 text-gray-400 hover:text-gray-200 hover:border-white/20"
                 }`}
               >
-                <Icon className="w-4 h-4" />
                 {sev.label}
               </button>
             );
@@ -185,6 +206,7 @@ export default function SystemErrors() {
                     <th className="text-left py-4 px-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Fonte</th>
                     <th className="text-left py-4 px-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Endpoint</th>
                     <th className="text-left py-4 px-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Data</th>
+                    <th className="text-left py-4 px-4 text-xs font-bold text-gray-400 uppercase tracking-wider"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -238,6 +260,18 @@ export default function SystemErrors() {
                         <span className="text-sm text-gray-400">
                           {formatTimestamp(err.created_at)}
                         </span>
+                      </td>
+                      <td className="py-4 px-4">
+                        {err.resolved ? (
+                          <span className="text-xs text-green-400">✓ Resolvido</span>
+                        ) : (
+                          <button
+                            onClick={() => resolveError(err.id)}
+                            className="text-xs text-gray-400 hover:text-white bg-white/5 hover:bg-white/10 px-2 py-1 rounded transition-colors"
+                          >
+                            Marcar Resolvido
+                          </button>
+                        )}
                       </td>
                     </motion.tr>
                   ))}

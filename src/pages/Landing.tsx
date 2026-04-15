@@ -1,33 +1,49 @@
 import React, { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { motion } from "motion/react";
 import { ArrowRight, Globe, Database, CreditCard, Activity, CheckCircle2 } from "lucide-react";
 import { signInWithGoogle } from "../lib/supabaseClient";
 import api from "../lib/api";
 import { cn } from "../lib/utils";
-import { Badge, Button } from "../components/ui";
+import { Badge, Button, Spinner, EmptyState } from "../components/ui";
 import { useAuth } from "../contexts/AuthContext";
 
 export default function Landing() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [stats, setStats] = useState({ postsCount: 0, feedsCount: 0, languages: 11 });
+  const [statsLoading, setStatsLoading] = useState(true);
+  const [statsError, setStatsError] = useState<string | null>(null);
   const [skills, setSkills] = useState<any[]>([]);
+  const [skillsLoading, setSkillsLoading] = useState(true);
+  const [skillsError, setSkillsError] = useState<string | null>(null);
   const [isUpgrading, setIsUpgrading] = useState(false);
-  const [skillsLoading, setSkillsLoading] = useState(false);
 
   useEffect(() => {
-    api.get("/api/stats").then(res => setStats(res.data)).catch(console.error);
+    if (user) {
+      navigate("/dashboard");
+    }
+  }, [user, navigate]);
+
+  useEffect(() => {
+    setStatsLoading(true);
+    setStatsError(null);
+    api.get("/api/stats")
+      .then(res => setStats(res.data))
+      .catch(err => setStatsError(err.message || 'Erro ao carregar estatísticas'))
+      .finally(() => setStatsLoading(false));
   }, []);
 
   useEffect(() => {
     setSkillsLoading(true);
+    setSkillsError(null);
     api.get("/api/skills")
       .then(res => {
         const all = res.data.skills || [];
-        // Get top 6 by popularity (downloads) or random
         const sorted = [...all].sort((a, b) => (b.downloads || 0) - (a.downloads || 0));
         setSkills(sorted.slice(0, 6));
       })
-      .catch(console.error)
+      .catch(err => setSkillsError(err.message || 'Erro ao carregar skills'))
       .finally(() => setSkillsLoading(false));
   }, []);
 
@@ -90,29 +106,39 @@ export default function Landing() {
           </motion.div>
 
           {/* Live Stats */}
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: 0.4, duration: 0.6 }}
-            className="mt-24 grid grid-cols-2 md:grid-cols-4 gap-8 max-w-4xl mx-auto p-8 bg-dark-card/50 border border-white/10 rounded-3xl backdrop-blur-sm"
-          >
-            <div className="text-center">
-              <div className="text-3xl font-display font-bold text-neon-purple mb-1">{stats.postsCount.toLocaleString()}+</div>
-              <div className="text-xs text-gray-500 uppercase tracking-widest">Posts Processed</div>
+          {statsLoading ? (
+            <div className="mt-24 grid grid-cols-2 md:grid-cols-4 gap-8 max-w-4xl mx-auto p-8">
+              <div className="text-center"><Spinner size="md" /></div>
             </div>
-            <div className="text-center border-l border-white/10">
-              <div className="text-3xl font-display font-bold text-neon-cyan mb-1">{stats.feedsCount}</div>
-              <div className="text-xs text-gray-500 uppercase tracking-widest">Active Sources</div>
-            </div>
-            <div className="text-center border-l border-white/10">
-              <div className="text-3xl font-display font-bold text-neon-purple mb-1">{stats.languages}</div>
-              <div className="text-xs text-gray-500 uppercase tracking-widest">Languages</div>
-            </div>
-            <div className="text-center border-l border-white/10">
-              <div className="text-3xl font-display font-bold text-neon-cyan mb-1">&lt; 100ms</div>
-              <div className="text-xs text-gray-500 uppercase tracking-widest">API Latency</div>
-            </div>
-          </motion.div>
+          ) : statsError ? (
+            <div className="mt-24"><EmptyState title="Erro" description={statsError} /></div>
+          ) : stats.postsCount === 0 ? (
+            <div className="mt-24"><EmptyState title="Sem dados" description="Nenhum post processado ainda." /></div>
+          ) : (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ delay: 0.4, duration: 0.6 }}
+              className="mt-24 grid grid-cols-2 md:grid-cols-4 gap-8 max-w-4xl mx-auto p-8 bg-dark-card/50 border border-white/10 rounded-3xl backdrop-blur-sm"
+            >
+              <div className="text-center">
+                <div className="text-3xl font-display font-bold text-neon-purple mb-1">{stats.postsCount.toLocaleString()}+</div>
+                <div className="text-xs text-gray-500 uppercase tracking-widest">Posts Processed</div>
+              </div>
+              <div className="text-center border-l border-white/10">
+                <div className="text-3xl font-display font-bold text-neon-cyan mb-1">{stats.feedsCount}</div>
+                <div className="text-xs text-gray-500 uppercase tracking-widest">Active Sources</div>
+              </div>
+              <div className="text-center border-l border-white/10">
+                <div className="text-3xl font-display font-bold text-neon-purple mb-1">{stats.languages}</div>
+                <div className="text-xs text-gray-500 uppercase tracking-widest">Languages</div>
+              </div>
+              <div className="text-center border-l border-white/10">
+                <div className="text-3xl font-display font-bold text-neon-cyan mb-1">&lt; 100ms</div>
+                <div className="text-xs text-gray-500 uppercase tracking-widest">API Latency</div>
+              </div>
+            </motion.div>
+          )}
         </div>
       </section>
 
@@ -188,6 +214,8 @@ export default function Landing() {
                 </div>
               ))}
             </div>
+          ) : skillsError ? (
+            <div className="max-w-5xl mx-auto"><EmptyState title="Erro" description={skillsError} /></div>
           ) : skills.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto">
               {skills.map((skill, i) => (
@@ -213,9 +241,7 @@ export default function Landing() {
               ))}
             </div>
           ) : (
-            <div className="text-center py-12 text-gray-500">
-              <p>No skills available yet. Check back soon!</p>
-            </div>
+            <EmptyState title="Sem skills" description="Nenhum skill disponível ainda." />
           )}
         </div>
       </section>

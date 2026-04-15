@@ -24,16 +24,16 @@ export interface Post {
   id: string;
   title: string;
   link: string;
-  pub_date: string;
-  summary: string;
-  translations: Record<string, string>;
-  source_id: string;
-  category: string;
-  status: 'pending' | 'processing' | 'published' | 'error' | 'failed';
+  pub_date?: string;
+  summary?: string;
+  translations?: Record<string, string>;
+  source_id?: string;
+  category?: string;
+  status: 'pending' | 'processing' | 'published' | 'error';
   error_message?: string;
-  retry_count?: number;
-  created_at: string;
+  retry_count: number;
   content_raw?: string;
+  created_at: string;
 }
 
 export interface UsageLog {
@@ -48,4 +48,45 @@ export interface AppStats {
   postsCount: number;
   feedsCount: number;
   languages: number;
+}
+
+export interface Skill {
+  id: string;
+  name: string;
+  slug: string;
+  description?: string;
+  long_description?: string;
+  category: 'development' | 'content' | 'automation' | 'analysis' | 'security';
+  tags?: string[];
+  input_schema?: Record<string, unknown>;
+  output_schema?: Record<string, unknown>;
+  code?: string;
+  install_command?: string;
+  run_command?: string;
+  risk_level?: string;
+  verified: boolean;
+  downloads: number;
+  is_active: boolean;
+  source?: string;
+  repo_url?: string;
+  stars?: number;
+  validation_score?: number;
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface RiskDecision {
+  id: string;
+  auto_fix_id: string;
+  risk_level: 'low' | 'medium' | 'high' | 'critical';
+  risk_score: number;
+  risk_factors?: Record<string, unknown>;
+  decision: 'auto_apply' | 'require_review' | 'block';
+  reasoning?: string;
+  model_used?: string;
+  executed: boolean;
+  executed_at?: string;
+  execution_result?: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
 }

@@ -15,6 +15,12 @@ function scanForDanger(code: string): string[] {
   return DANGEROUS_PATTERNS.filter(p => p.test(code)).map(p => p.source);
 }
 
+function getAiKey(): string {
+  const key = process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY;
+  if (!key) throw new Error("MISSING REQUIRED ENV: OPENAI_API_KEY or GROQ_API_KEY");
+  return key;
+}
+
 interface CacheEntry { data: any; timestamp: number; ttl: number; }
 const memoryCache: Record<string, CacheEntry> = {};
 
@@ -119,7 +125,7 @@ router.post("/:slug/evaluate", async (req, res) => {
     const warnings = scanForDanger(skill.code || "");
 
     const AI_BASE_URL = process.env.OPENAI_BASE_URL || "https://api.groq.com/openai/v1";
-    const AI_API_KEY = process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY || "";
+    const AI_API_KEY = getAiKey();
     const groqResponse = await fetch(`${AI_BASE_URL}/chat/completions`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${AI_API_KEY}` },

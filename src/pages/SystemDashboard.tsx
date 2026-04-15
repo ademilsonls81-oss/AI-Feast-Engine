@@ -69,8 +69,11 @@ interface SystemError {
 
 interface AutoFix {
   id: string;
-  status: string;
-  commit_hash: string | null;
+  status: "pending_review" | "applied" | "rejected" | "auto_applied";
+  cause: string;
+  fix: string;
+  confidence: number;
+  model_used: string;
   created_at: string;
   [key: string]: any;
 }
@@ -598,22 +601,18 @@ export default function SystemDashboard() {
                     <tr key={fix.id} className="border-b border-gray-800">
                       <td className="py-2 px-3">
                         <span className={`px-2 py-1 rounded text-xs ${
-                          fix.status === "applied" ? "bg-green-900 text-green-300" :
-                          fix.status === "failed" ? "bg-red-900 text-red-300" :
-                          "bg-gray-700 text-gray-300"
+                          fix.status === "applied" || fix.status === "auto_applied" ? "bg-green-900 text-green-300" :
+                          fix.status === "rejected" ? "bg-red-900 text-red-300" :
+                          "bg-yellow-900 text-yellow-300"
                         }`}>
                           {fix.status.toUpperCase()}
                         </span>
                       </td>
                       <td className="py-2 px-3 font-mono text-xs text-gray-400">
-                        {fix.commit_hash ? (
-                          <span className="flex items-center gap-1">
-                            <GitCommit className="w-3 h-3" />
-                            {fix.commit_hash.substring(0, 7)}
-                          </span>
-                        ) : (
-                          <span className="text-gray-600">—</span>
-                        )}
+                        <span className="flex items-center gap-1">
+                          <Zap className="w-3 h-3 text-neon-cyan" />
+                          {(fix.confidence * 100).toFixed(0)}%
+                        </span>
                       </td>
                       <td className="py-2 px-3 text-xs text-gray-500">
                         {formatDate(fix.created_at)}

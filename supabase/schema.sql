@@ -139,3 +139,26 @@ CREATE POLICY "Admins can read audit logs" ON public.audit_logs
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
+
+-- ==========================================
+-- FEED HEALTH TRACKING
+-- ==========================================
+CREATE TABLE public.feed_health (
+  feed_id UUID REFERENCES public.feeds(id) ON DELETE CASCADE PRIMARY KEY,
+  success_count INTEGER DEFAULT 0,
+  error_count INTEGER DEFAULT 0,
+  total_latency_ms INTEGER DEFAULT 0,
+  avg_latency_ms INTEGER DEFAULT 0,
+  last_latency_ms INTEGER,
+  last_status TEXT CHECK (last_status IN ('success', 'error')),
+  last_error TEXT,
+  last_success_at TIMESTAMP WITH TIME ZONE,
+  last_checked_at TIMESTAMP WITH TIME ZONE,
+  items_fetched INTEGER DEFAULT 0,
+  health_score INTEGER DEFAULT 50,
+  consecutive_errors INTEGER DEFAULT 0,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_feed_health_score ON public.feed_health(health_score);
+CREATE INDEX idx_feed_health_status ON public.feed_health(last_status);

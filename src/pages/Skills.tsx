@@ -19,7 +19,8 @@ interface Skill {
   long_description: string;
   category: string;
   tags: string[];
-  risk_level: string;
+  risk_level?: string;
+  validation_score?: number;
   verified: boolean;
   source?: string;
   downloads: number;
@@ -28,7 +29,7 @@ interface Skill {
   code?: string;
   install_command?: string;
   run_command?: string;
-  created_at: string;
+  created_at?: string;
 }
 
 const categories = ["All", "development", "content", "automation", "analysis", "security"];
@@ -36,6 +37,7 @@ const originFilters = ["All", "AI Verified", "Community Imported"];
 
 export default function Skills() {
   const [skills, setSkills] = useState<Skill[]>([]);
+  const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("All");
   const [originFilter, setOriginFilter] = useState("All");
@@ -99,11 +101,12 @@ export default function Skills() {
       // Only update state if component is still mounted
       if (isMountedRef.current) {
         setSkills(res.data.skills || []);
+        setError(null);
       }
     } catch (err: any) {
       console.error("Error fetching skills:", err);
       if (isMountedRef.current) {
-        alert("⚠️ Erro ao carregar skills: " + (err.message || "Tente novamente"));
+        setError(err.message || "Erro ao carregar skills");
       }
     } finally {
       if (isMountedRef.current) {
@@ -257,7 +260,11 @@ export default function Skills() {
         {/* Skills Grid */}
         {loading ? (
           <SkeletonGrid count={6} height="h-48" />
-        ) : filteredSkills.length > 0 ? (
+        ) : error ? (
+          <EmptyState title="Erro" description={error} />
+        ) : filteredSkills.length === 0 ? (
+          <EmptyState title="Nenhum skill encontrado" description="Tente ajustar os filtros." />
+        ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredSkills.map((skill, idx) => (
               <motion.article
@@ -294,7 +301,7 @@ export default function Skills() {
 
                 {/* Footer */}
                 <div className="flex items-center justify-between pt-4 border-t border-white/5">
-                  <RiskBadge level={skill.risk_level} />
+                  <RiskBadge score={skill.validation_score ?? 0.5} />
                   <div className="flex items-center gap-3 text-[10px] text-gray-500">
                     <span className="flex items-center gap-1"><Download className="w-3 h-3" />{skill.downloads || 0}</span>
                     <ChevronRight className="w-3 h-3 text-neon-cyan group-hover:translate-x-1 transition-transform" />
@@ -303,12 +310,6 @@ export default function Skills() {
               </motion.article>
             ))}
           </div>
-        ) : (
-          <EmptyState
-            context="skills"
-            onAction={() => setOriginFilter("All")}
-            ctaLabel="Explore skills"
-          />
         )}
 
         {/* Detail Modal */}
@@ -345,7 +346,7 @@ export default function Skills() {
                 <div className="p-6 space-y-6">
                   {/* Badges */}
                   <div className="flex flex-wrap gap-2">
-                    <RiskBadge level={selectedSkill.risk_level} />
+                    <RiskBadge score={selectedSkill.validation_score ?? 0.5} />
                     {selectedSkill.verified && (
                       <Badge variant="ai-verified" />
                     )}

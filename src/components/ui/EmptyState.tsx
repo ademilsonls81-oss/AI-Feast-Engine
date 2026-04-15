@@ -1,8 +1,8 @@
 import React from "react";
 import { cn } from "../../lib/utils";
-import { LucideIcon, Search, FileText, BarChart3, History, Shield, Database } from "lucide-react";
+import { LucideIcon, Search, FileText, BarChart3, History, Shield, Database, Users } from "lucide-react";
 
-export type EmptyStateContext = "skills" | "feed" | "dashboard" | "logs" | "posts" | "generic";
+export type EmptyStateContext = "skills" | "feed" | "dashboard" | "logs" | "posts" | "users" | "generic";
 
 const contextIcons: Record<EmptyStateContext, LucideIcon> = {
   skills: Shield,
@@ -10,6 +10,7 @@ const contextIcons: Record<EmptyStateContext, LucideIcon> = {
   dashboard: BarChart3,
   logs: History,
   posts: FileText,
+  users: Users,
   generic: Database,
 };
 
@@ -37,6 +38,10 @@ const defaultContent: Record<
     title: "No recent processing jobs",
     description: "New posts will show up here when processed.",
   },
+  users: {
+    title: "No users yet",
+    description: "Users will appear here when they sign up.",
+  },
   generic: {
     title: "Nothing here yet",
     description: "Content will appear when available.",
@@ -60,6 +65,7 @@ const defaultCta: Record<EmptyStateContext, string> = {
   dashboard: "View API docs",
   logs: "Make your first call",
   posts: "Check back soon",
+  users: "Invite users",
   generic: "Get started",
 };
 
