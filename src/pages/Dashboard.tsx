@@ -95,46 +95,56 @@ export default function Dashboard() {
   }, [user, profile]); // Run when user or profile changes
 
   async function fetchLogs(userId: string) {
-    const { data, error } = await supabase
-      .from('usage_logs')
-      .select('*')
-      .eq('user_id', userId)
-      .order('timestamp', { ascending: false })
-      .limit(50); // Aumentado para 50 logs
-    
-    if (error) {
-      console.error('Error fetching logs:', error.message);
-    }
-    
-    // Se não há logs, gera dados baseados no usage_count do perfil
-    if (!data || data.length === 0) {
-      console.log('No logs found, generating chart data from usage_count');
-      const usageCount = profile?.usage_count || 0;
-      if (usageCount > 0) {
-        // Gera dados agregados baseados no usage_count
-        const generatedLogs = Array.from({ length: Math.min(usageCount, 10) }, (_, i) => ({
-          id: `gen-${i}`,
-          endpoint: '/api/feed',
-          timestamp: new Date(Date.now() - (usageCount - i) * 60 * 60 * 1000).toISOString(),
-          cost: 0.001,
-          generated: true
-        }));
-        setLogs(generatedLogs);
-      } else {
+    try {
+      const { data, error } = await supabase
+        .from('usage_logs')
+        .select('*')
+        .eq('user_id', userId)
+        .order('timestamp', { ascending: false })
+        .limit(50);
+
+      if (error) {
+        console.error('[Dashboard] Error fetching logs:', error.message);
         setLogs([]);
+        return;
       }
-    } else {
-      setLogs(data || []);
+
+      // Se não há logs, gera dados baseados no usage_count do perfil
+      if (!data || data.length === 0) {
+        const usageCount = profile?.usage_count || 0;
+        if (usageCount > 0) {
+          const generatedLogs = Array.from({ length: Math.min(usageCount, 10) }, (_, i) => ({
+            id: `gen-${i}`,
+            endpoint: '/api/feed',
+            timestamp: new Date(Date.now() - (usageCount - i) * 60 * 60 * 1000).toISOString(),
+            cost: 0.001,
+            generated: true
+          }));
+          setLogs(generatedLogs);
+        } else {
+          setLogs([]);
+        }
+      } else {
+        setLogs(data || []);
+      }
+    } catch (err) {
+      console.error("[Dashboard] fetchLogs exception:", err);
+      setLogs([]);
     }
   }
 
   async function fetchPosts() {
-    const { data } = await supabase
-      .from('posts')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(5);
-    setPosts((data as Post[]) || []);
+    try {
+      const { data } = await supabase
+        .from('posts')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(5);
+      setPosts((data as Post[]) || []);
+    } catch (err) {
+      console.error("[Dashboard] fetchPosts error:", err);
+      setPosts([]);
+    }
   }
 
   async function fetchStats() {

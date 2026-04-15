@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 import { Database, Plus, Trash2, Activity, List, ShieldCheck, Sparkles, Power, Eye, EyeOff, Play, FileText, AlertCircle } from "lucide-react";
 import api from "../lib/api";
@@ -56,7 +57,9 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
 }
 
 export default function Admin() {
+  const navigate = useNavigate();
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [feeds, setFeeds] = useState<any[]>([]);
   const [newFeed, setNewFeed] = useState({ url: "", name: "", category: "Tech" });
   const [logs, setLogs] = useState<any[]>([]);
@@ -78,27 +81,63 @@ export default function Admin() {
   const [dryRunResult, setDryRunResult] = useState<any>(null);
   const [showDryRunModal, setShowDryRunModal] = useState(false);
 
+  // Kill switch state
+  const [autonomousEnabled, setAutonomousEnabled] = useState(true);
+  const [isToggling, setIsToggling] = useState(false);
+
+  // Session status state
+  const [sessionExpired, setSessionExpired] = useState(false);
+
+  // refs para evitar race conditions
+  const isMountedRef = useRef(false);
+  const importOperationId = useRef<number>(0);
+  const previousSubscriptionRef = useRef<any>(null);
+
 
   useEffect(() => {
-    // Initial check
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (user) {
+    isMountedRef.current = true;
+    setSessionExpired(false);
+
+    // Initial check com AbortController e tratamento de erro
+    const abortController = new AbortController();
+
+    supabase.auth.getUser().then(({ data: { user }, error }) => {
+      if (error) {
+        console.error("[Admin] getUser error:", error);
+        if (error.message.includes("Invalid API key") || error.status === 401) {
+          setSessionExpired(true);
+        }
+        return;
+      }
+      if (user && !abortController.signal.aborted && isMountedRef.current) {
         setUserId(user.id);
         checkAdminRole(user.id);
+      }
+    }).catch(err => {
+      console.error("[Admin] getUser catch error:", err);
+      if (err.message.includes("auth") || err.status === 401) {
+        setSessionExpired(true);
       }
     });
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session?.user) {
+      if (session?.user && isMountedRef.current) {
+        setSessionExpired(false);
         checkAdminRole(session.user.id);
-      } else {
+      } else if (isMountedRef.current) {
         setIsAdmin(false);
+        setSessionExpired(!session);
       }
     });
 
-    return () => subscription.unsubscribe();
-  }, []);
+    return () => {
+      isMountedRef.current = false;
+      abortController.abort();
+      subscription.unsubscribe();
+      setIsLoading(false);
+    };
+  }, [navigate]);
 
   async function checkAdminRole(userId: string) {
     const { data, error } = await supabase
@@ -117,13 +156,73 @@ export default function Admin() {
     if (data?.role === 'admin') {
       setIsAdmin(true);
       console.log("✅ Admin access granted");
+      // Carregar estado do kill switch
+      fetchAutonomousStatus();
     } else {
       console.log("❌ Access denied: role is", data?.role);
     }
   }
 
+  async function fetchAutonomousStatus() {
+    try {
+      const { data, error } = await supabase
+        .from('system_settings')
+        .select('value')
+        .eq('key', 'autonomous_enabled')
+        .single();
+
+      if (error && !error.message.includes('no rows')) {
+        console.error("[Admin] fetchAutonomousStatus error:", error);
+        return;
+      }
+
+      if (data?.value !== undefined && isMountedRef.current) {
+        setAutonomousEnabled(data.value);
+      }
+    } catch (err) {
+      console.error("[Admin] fetchAutonomousStatus exception:", err);
+    }
+  }
+
+  async function handleToggleAutonomous() {
+    const newValue = !autonomousEnabled;
+    setIsToggling(true);
+    
+    try {
+      const { error } = await supabase
+        .from('system_settings')
+        .upsert({ key: 'autonomous_enabled', value: newValue }, { onConflict: 'key' });
+
+      if (error) {
+        throw error;
+      }
+
+      if (isMountedRef.current) {
+        setAutonomousEnabled(newValue);
+        alert(newValue 
+          ? "✅ Sistema autônomo REATIVADO" 
+          : "⚠️ Sistema autônomo PAUSADO");
+      }
+    } catch (err: any) {
+      console.error("[Admin] handleToggleAutonomous error:", err);
+      alert("❌ Erro ao alterar estado: " + (err.message || "Tente novamente"));
+    } finally {
+      if (isMountedRef.current) {
+        setIsToggling(false);
+      }
+    }
+  }
+
   useEffect(() => {
     if (!isAdmin) return;
+
+    // AbortController para cancelar requisições se desmontar
+    const abortController = new AbortController();
+    
+    // Cleanup da subscription anterior se existir (evitar isAdmin flip)
+    if (previousSubscriptionRef.current) {
+      previousSubscriptionRef.current.cleanup?.();
+    }
 
     // Fetch initial feeds
     fetchFeeds();
@@ -134,7 +233,7 @@ export default function Admin() {
     const feedsSub = supabase
       .channel('admin-feeds')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'feeds' }, () => {
-        fetchFeeds();
+        if (isMountedRef.current) fetchFeeds();
       })
       .subscribe();
 
@@ -143,7 +242,7 @@ export default function Admin() {
     const logsSub = supabase
       .channel('admin-logs')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'usage_logs' }, () => {
-        fetchLogs();
+        if (isMountedRef.current) fetchLogs();
       })
       .subscribe();
 
@@ -152,7 +251,7 @@ export default function Admin() {
     const pendingSub = supabase
       .channel('admin-pending')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'posts' }, () => {
-        fetchPendingCount();
+        if (isMountedRef.current) fetchPendingCount();
       })
       .subscribe();
 
@@ -161,53 +260,105 @@ export default function Admin() {
     const auditSub = supabase
       .channel('admin-audit')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'audit_logs' }, () => {
-        fetchAuditLogs();
+        if (isMountedRef.current) fetchAuditLogs();
       })
       .subscribe();
 
+    // Guardar cleanup para próxima renderização
+    previousSubscriptionRef.current = {
+      cleanup: () => {
+        supabase.removeChannel(feedsSub);
+        supabase.removeChannel(logsSub);
+        supabase.removeChannel(pendingSub);
+        supabase.removeChannel(auditSub);
+      }
+    };
+
     return () => {
-      supabase.removeChannel(feedsSub);
-      supabase.removeChannel(logsSub);
-      supabase.removeChannel(pendingSub);
-      supabase.removeChannel(auditSub);
+      abortController.abort();
+      if (previousSubscriptionRef.current?.cleanup) {
+        previousSubscriptionRef.current.cleanup();
+      }
     };
   }, [isAdmin]);
 
   async function fetchFeeds() {
-    const { data } = await supabase.from('feeds').select('*').order('created_at', { ascending: false });
-    setFeeds(data || []);
+    try {
+      const { data, error } = await supabase.from('feeds').select('*').order('created_at', { ascending: false });
+      if (error) {
+        console.error("[Admin] fetchFeeds error:", error);
+        return;
+      }
+      if (isMountedRef.current) {
+        setFeeds(data || []);
+      }
+    } catch (err) {
+      console.error("[Admin] fetchFeeds exception:", err);
+    }
   }
 
   async function fetchLogs() {
-    const { data } = await supabase
-      .from('usage_logs')
-      .select('*')
-      .order('timestamp', { ascending: false })
-      .limit(20);
-    setLogs(data || []);
+    try {
+      const { data, error } = await supabase
+        .from('usage_logs')
+        .select('*')
+        .order('timestamp', { ascending: false })
+        .limit(20);
+      if (error) {
+        console.error("[Admin] fetchLogs error:", error);
+        return;
+      }
+      if (isMountedRef.current) {
+        setLogs(data || []);
+      }
+    } catch (err) {
+      console.error("[Admin] fetchLogs exception:", err);
+    }
   }
 
   async function fetchPendingCount() {
-    const { count } = await supabase
-      .from('posts')
-      .select('*', { count: 'exact', head: true })
-      .eq('status', 'pending');
-    setPendingCount(count || 0);
+    try {
+      const { count, error } = await supabase
+        .from('posts')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'pending');
+      if (error) {
+        console.error("[Admin] fetchPendingCount error:", error);
+        return;
+      }
+      if (isMountedRef.current) {
+        setPendingCount(count || 0);
+      }
+    } catch (err) {
+      console.error("[Admin] fetchPendingCount exception:", err);
+    }
   }
 
   async function fetchAuditLogs() {
-    const { data } = await supabase
-      .from('audit_logs')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(20);
-    setAuditLogs(data || []);
+    try {
+      const { data, error } = await supabase
+        .from('audit_logs')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(20);
+      if (error) {
+        console.error("[Admin] fetchAuditLogs error:", error);
+        return;
+      }
+      if (isMountedRef.current) {
+        setAuditLogs(data || []);
+      }
+    } catch (err) {
+      console.error("[Admin] fetchAuditLogs exception:", err);
+    }
   }
 
   async function fetchSkills() {
     try {
       const res = await api.get("/api/skills");
-      setSkills(res.data.skills || []);
+      if (isMountedRef.current) {
+        setSkills(res.data.skills || []);
+      }
     } catch (err) {
       console.error("Error fetching skills:", err);
     }
@@ -266,38 +417,59 @@ export default function Admin() {
   async function fetchImportLogs() {
     try {
       const res = await api.get("/api/admin/skills/import/logs");
-      setImportLogs(res.data.logs || []);
+      if (isMountedRef.current) {
+        setImportLogs(res.data.logs || []);
+      }
     } catch (err) {
       console.error("Error fetching import logs:", err);
     }
   }
 
   async function handleRunImport() {
+    // Criar operation ID único para evitar race condition
+    const currentOpId = ++importOperationId.current;
     setIsImporting(true);
+    
     try {
       const headers = await getAuthHeaders();
       const res = await api.post("/api/admin/skills/import/manual", {}, { headers });
-      alert(`Import concluído: ${res.data.log.inserted} inseridas, ${res.data.log.updated} atualizadas`);
-      fetchImportLogs();
-      fetchSkills();
+      
+      // Only update if this is still the latest operation
+      if (currentOpId === importOperationId.current && isMountedRef.current) {
+        alert(`Import concluído: ${res.data.log.inserted} inseridas, ${res.data.log.updated} atualizadas`);
+        fetchImportLogs();
+        fetchSkills();
+      }
     } catch (err: any) {
-      alert("Erro no import: " + (err.response?.data?.error || err.message));
+      if (currentOpId === importOperationId.current) {
+        alert("Erro no import: " + (err.response?.data?.error || err.message));
+      }
     } finally {
-      setIsImporting(false);
+      if (currentOpId === importOperationId.current && isMountedRef.current) {
+        setIsImporting(false);
+      }
     }
   }
 
   async function handleDryRun() {
+    const currentOpId = ++importOperationId.current;
     setIsImporting(true);
     try {
       const headers = await getAuthHeaders();
       const res = await api.post("/api/admin/skills/import/manual", { dryRun: true }, { headers });
-      setDryRunResult(res.data.log);
-      setShowDryRunModal(true);
+      
+      if (currentOpId === importOperationId.current && isMountedRef.current) {
+        setDryRunResult(res.data.log);
+        setShowDryRunModal(true);
+      }
     } catch (err: any) {
-      alert("Erro no dry run: " + (err.response?.data?.error || err.message));
+      if (currentOpId === importOperationId.current) {
+        alert("Erro no dry run: " + (err.response?.data?.error || err.message));
+      }
     } finally {
-      setIsImporting(false);
+      if (currentOpId === importOperationId.current && isMountedRef.current) {
+        setIsImporting(false);
+      }
     }
   }
 
@@ -316,11 +488,61 @@ export default function Admin() {
     }
   };
 
+  const handleRelogin = async () => {
+    // Redirect to login page or trigger sign in
+    window.location.href = "/";
+  };
+
   const handleAddFeed = async (e: React.FormEvent) => {
     e.preventDefault();
-    await api.post("/api/admin/feeds", newFeed);
-    setNewFeed({ url: "", name: "", category: "Tech" });
+    try {
+      await api.post("/api/admin/feeds", newFeed);
+      setNewFeed({ url: "", name: "", category: "Tech" });
+    } catch (err: any) {
+      const errorMsg = err.response?.data?.error || err.message || "Erro desconhecido";
+      alert(`❌ Erro ao adicionar feed: ${errorMsg}`);
+    }
   };
+
+  // Cleanup global ao desmontar
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  // Loading state
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-dark-bg flex items-center justify-center">
+        <div className="text-center">
+          <Spinner size="lg" />
+          <p className="text-gray-400 mt-4">Carregando painel administrativo...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Session expired state
+  if (sessionExpired) {
+    return (
+      <div className="min-h-screen bg-dark-bg flex items-center justify-center px-4">
+        <div className="text-center max-w-md">
+          <AlertCircle className="w-16 h-16 text-red-400 mx-auto mb-6" />
+          <h2 className="text-2xl font-bold text-white mb-3">Sessão Expirada</h2>
+          <p className="text-gray-400 mb-8">
+            Sua sessão expirou ou você não tem permissão para acessar esta área. Faça login novamente para continuar.
+          </p>
+          <button
+            onClick={handleRelogin}
+            className="px-8 py-4 bg-gradient-to-r from-neon-purple to-neon-cyan text-white rounded-xl font-bold shadow-lg shadow-neon-purple/20 hover:scale-105 transition-all"
+          >
+            Fazer Login Novamente
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (!isAdmin) return <div className="p-12 text-center text-red-400">Access Denied. Admin only.</div>;
 
@@ -336,6 +558,37 @@ export default function Admin() {
         message="Manage feeds, generate skills with AI, and monitor import pipelines. All admin tools are below."
         onDismiss={() => setShowAdminTooltip(false)}
       />
+
+      {/* Kill Switch Card */}
+      <div className="mb-8 p-6 bg-dark-card border border-white/10 rounded-3xl">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className={`p-3 rounded-xl ${autonomousEnabled ? 'bg-green-500/20' : 'bg-red-500/20'}`}>
+              <Power className={`w-8 h-8 ${autonomousEnabled ? 'text-green-400' : 'text-red-400'}`} />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-white">Sistema Autônomo</h2>
+              <p className="text-sm text-gray-400">
+                {autonomousEnabled 
+                  ? "✅ Sistema operando normalmente" 
+                  : "⚠️ Sistema pausado - nenhuma ação automática será executada"}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={handleToggleAutonomous}
+            disabled={isToggling}
+            className={`px-6 py-3 rounded-xl font-bold transition-all flex items-center gap-2 ${
+              autonomousEnabled
+                ? "bg-red-500/20 border border-red-500/30 text-red-400 hover:bg-red-500/30"
+                : "bg-green-500/20 border border-green-500/30 text-green-400 hover:bg-green-500/30"
+            } disabled:opacity-50 disabled:cursor-not-allowed`}
+          >
+            <Power className={`w-5 h-5 ${isToggling ? 'animate-spin' : ''}`} />
+            {isToggling ? "Alterando..." : (autonomousEnabled ? "PAUSAR SISTEMA" : "ATIVAR SISTEMA")}
+          </button>
+        </div>
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
         {/* Manage Feeds */}

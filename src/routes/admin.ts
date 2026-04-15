@@ -490,4 +490,220 @@ router.delete("/skills/:id", checkAdmin, async (req, res) => {
   }
 });
 
+// ==========================================
+// FASE 11: SYSTEM DASHBOARD ENDPOINTS
+// ==========================================
+
+// GET /api/admin/system/status - Status geral do sistema autônomo
+router.get("/system/status", checkAdmin, async (_req, res) => {
+  try {
+    const { isLoopActive, getLoopStatus, getCircuitBreakerStatus } = await import("../autonomous/index.js");
+
+    const loopActive = isLoopActive();
+    const loopStatus = getLoopStatus();
+    const circuitBreaker = getCircuitBreakerStatus();
+
+    // Buscar última execução do loop (audit log ou system_errors recente)
+    const { data: recentErrors } = await supabase
+      .from("system_errors")
+      .select("created_at")
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    const lastLoopExecution = recentErrors?.[0]?.created_at || null;
+
+    // Buscar últimas correções aplicadas
+    const { count: totalFixes } = await supabase
+      .from("auto_fixes")
+      .select("*", { count: "exact", head: true })
+      .eq("status", "applied");
+
+    // Contar erros nas últimas 24h
+    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const { count: recentErrorCount } = await supabase
+      .from("system_errors")
+      .select("*", { count: "exact", head: true })
+      .gte("created_at", twentyFourHoursAgo);
+
+    res.json({
+      loop_status: {
+        is_running: loopActive,
+        can_execute: loopStatus.canExecute,
+        message: loopStatus.message
+      },
+      circuit_breaker: {
+        is_active: circuitBreaker.isActive,
+        consecutive_failures: circuitBreaker.consecutiveFailures,
+        threshold: circuitBreaker.threshold,
+        cooldown_ends_at: circuitBreaker.cooldownEndsAt,
+        message: circuitBreaker.message
+      },
+      last_loop_execution: lastLoopExecution,
+      total_fixes_applied: totalFixes || 0,
+      errors_last_24h: recentErrorCount || 0,
+      timestamp: new Date().toISOString()
+    });
+  } catch (err: any) {
+    console.error("[Admin/System] Error fetching status:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/admin/system/errors - Últimos erros do sistema
+router.get("/system/errors", checkAdmin, async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit as string) || 10;
+    const offset = parseInt(req.query.offset as string) || 0;
+    const severity = req.query.severity as string;
+
+    let query = supabase
+      .from("system_errors")
+      .select("id, error_type, source, message, stack_trace, severity, endpoint, http_status, created_at")
+      .order("created_at", { ascending: false });
+
+    if (severity) {
+      query = query.eq("severity", severity);
+    }
+
+    const { data, error, count } = await supabase
+      .from("system_errors")
+      .select("id, error_type, source, message, stack_trace, severity, endpoint, http_status, created_at", { count: "exact" })
+      .order("created_at", { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (error) return res.status(500).json({ error: error.message });
+
+    res.json({
+      errors: data || [],
+      total: count || 0,
+      limit,
+      offset
+    });
+  } catch (err: any) {
+    console.error("[Admin/System] Error fetching errors:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/admin/system/fixes - Histórico de correções automáticas
+router.get("/system/fixes", checkAdmin, async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit as string) || 20;
+    const offset = parseInt(req.query.offset as string) || 0;
+    const status = req.query.status as string;
+
+    let query = supabase
+      .from("auto_fixes")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (status) {
+      query = query.eq("status", status);
+    }
+
+    const { data, error, count } = await supabase
+      .from("auto_fixes")
+      .select("*", { count: "exact" })
+      .order("created_at", { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (error) return res.status(500).json({ error: error.message });
+
+    res.json({
+      fixes: data || [],
+      total: count || 0,
+      limit,
+      offset
+    });
+  } catch (err: any) {
+    console.error("[Admin/System] Error fetching fixes:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/admin/system/decisions - Decisões de risco recentes
+router.get("/system/decisions", checkAdmin, async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit as string) || 20;
+    const offset = parseInt(req.query.offset as string) || 0;
+    const riskLevel = req.query.risk_level as string;
+    const decision = req.query.decision as string;
+
+    let query = supabase
+      .from("risk_decisions")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (riskLevel) {
+      query = query.eq("risk_level", riskLevel);
+    }
+
+    if (decision) {
+      query = query.eq("decision", decision);
+    }
+
+    const { data, error, count } = await supabase
+      .from("risk_decisions")
+      .select("*", { count: "exact" })
+      .order("created_at", { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (error) return res.status(500).json({ error: error.message });
+
+    res.json({
+      decisions: data || [],
+      total: count || 0,
+      limit,
+      offset
+    });
+  } catch (err: any) {
+    console.error("[Admin/System] Error fetching decisions:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/admin/system/metrics - Métricas rápidas do dia
+router.get("/system/metrics", checkAdmin, async (_req, res) => {
+  try {
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+    const startOfDayISO = startOfDay.toISOString();
+
+    const startOfYesterday = new Date(Date.now() - 48 * 60 * 60 * 1000);
+    startOfYesterday.setHours(0, 0, 0, 0);
+    const startOfYesterdayISO = startOfYesterday.toISOString();
+
+    // Métricas de hoje
+    const [errorsToday, fixesToday, decisionsToday, postsPublished] = await Promise.all([
+      supabase.from("system_errors").select("*", { count: "exact", head: true }).gte("created_at", startOfDayISO),
+      supabase.from("auto_fixes").select("*", { count: "exact", head: true }).gte("created_at", startOfDayISO),
+      supabase.from("risk_decisions").select("*", { count: "exact", head: true }).gte("created_at", startOfDayISO),
+      supabase.from("posts").select("*", { count: "exact", head: true }).eq("status", "published").gte("created_at", startOfDayISO)
+    ]);
+
+    // Métricas de ontem (para comparação)
+    const [errorsYesterday, fixesYesterday] = await Promise.all([
+      supabase.from("system_errors").select("*", { count: "exact", head: true }).gte("created_at", startOfYesterdayISO).lt("created_at", startOfDayISO),
+      supabase.from("auto_fixes").select("*", { count: "exact", head: true }).gte("created_at", startOfYesterdayISO).lt("created_at", startOfDayISO)
+    ]);
+
+    res.json({
+      today: {
+        errors_detected: errorsToday.count || 0,
+        fixes_applied: fixesToday.count || 0,
+        risk_decisions: decisionsToday.count || 0,
+        posts_published: postsPublished.count || 0
+      },
+      yesterday: {
+        errors_detected: errorsYesterday.count || 0,
+        fixes_applied: fixesYesterday.count || 0
+      },
+      timestamp: new Date().toISOString()
+    });
+  } catch (err: any) {
+    console.error("[Admin/System] Error fetching metrics:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;

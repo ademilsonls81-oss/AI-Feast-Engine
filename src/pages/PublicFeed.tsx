@@ -33,15 +33,21 @@ export default function PublicFeed() {
   }, []);
 
   async function fetchPosts() {
-    const { data } = await supabase
-      .from('posts')
-      .select('*')
-      .eq('status', 'published')
-      .order('pub_date', { ascending: false })
-      .limit(30);
-    
-    setPosts((data as Post[]) || []);
-    setLoading(false);
+    try {
+      const { data } = await supabase
+        .from('posts')
+        .select('*')
+        .eq('status', 'published')
+        .order('pub_date', { ascending: false })
+        .limit(30);
+
+      setPosts((data as Post[]) || []);
+    } catch (err) {
+      console.error("[PublicFeed] fetchPosts error:", err);
+      setPosts([]);
+    } finally {
+      setLoading(false);
+    }
   }
 
   const filteredPosts = posts.filter(p => {

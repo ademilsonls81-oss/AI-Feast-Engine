@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Globe, Search, Download, ExternalLink, ChevronRight, X, Check, Shield, Terminal, ArrowRight, AlertTriangle, AlertCircle, Info } from "lucide-react";
 import api from "../lib/api";
@@ -44,15 +44,48 @@ export default function Skills() {
   const [copiedCmd, setCopiedCmd] = useState("");
   const [evaluation, setEvaluation] = useState<any>(null);
 
+  // refs para evitar race conditions
+  const isMountedRef = useRef(false);
+  const currentSkillSlugRef = useRef<string | null>(null);
+  const initialLoadDoneRef = useRef(false);
+
   useEffect(() => {
-    fetchSkills();
+    isMountedRef.current = true;
+    
+    // Single fetch on mount - avoid double fetch
+    if (!initialLoadDoneRef.current) {
+      initialLoadDoneRef.current = true;
+      fetchSkills();
+    }
+
+    return () => {
+      isMountedRef.current = false;
+    };
   }, []);
 
   useEffect(() => {
     if (selectedSkill) {
+      currentSkillSlugRef.current = selectedSkill.slug;
       fetchEvaluation(selectedSkill.slug);
+    } else {
+      currentSkillSlugRef.current = null;
+      setEvaluation(null);
     }
   }, [selectedSkill]);
+
+  useEffect(() => { 
+    if (initialLoadDoneRef.current) {
+      fetchSkills();
+    }
+  }, [originFilter]);
+
+  // Helper: Promise with timeout
+  const withTimeout = <T,>(promise: Promise<T>, ms: number, errorMessage: string): Promise<T> => {
+    const timeout = new Promise<never>((_, reject) => 
+      setTimeout(() => reject(new Error(errorMessage)), ms)
+    );
+    return Promise.race([promise, timeout]);
+  };
 
   async function fetchSkills() {
     try {
@@ -60,37 +93,80 @@ export default function Skills() {
       if (originFilter === "AI Verified") params.verified = "true";
       if (originFilter === "Community Imported") params.source = "github";
 
-      const res = await api.get("/api/skills", { params });
-      setSkills(res.data.skills || []);
-    } catch (err) {
+      const request = api.get("/api/skills", { params });
+      const res = await withTimeout(request, 15000, "Timeout: Failed to load skills after 15s");
+      
+      // Only update state if component is still mounted
+      if (isMountedRef.current) {
+        setSkills(res.data.skills || []);
+      }
+    } catch (err: any) {
       console.error("Error fetching skills:", err);
+      if (isMountedRef.current) {
+        alert("⚠️ Erro ao carregar skills: " + (err.message || "Tente novamente"));
+      }
     } finally {
-      setLoading(false);
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
     }
   }
 
-  useEffect(() => { fetchSkills(); }, [originFilter]);
-
   async function fetchEvaluation(slug: string) {
+    // Guard: ignore if slug changed while request was in flight
+    if (currentSkillSlugRef.current !== slug) {
+      return;
+    }
+
     try {
       const res = await api.post(`/api/skills/${slug}/evaluate`);
-      setEvaluation(res.data);
+      
+      // Only update if still the same skill
+      if (currentSkillSlugRef.current === slug && isMountedRef.current) {
+        setEvaluation(res.data);
+      }
     } catch {
-      setEvaluation(null);
+      if (currentSkillSlugRef.current === slug && isMountedRef.current) {
+        setEvaluation(null);
+      }
     }
   }
 
   const copyCommand = (cmd: string) => {
-    navigator.clipboard.writeText(cmd);
-    setCopiedCmd(cmd);
-    setTimeout(() => setCopiedCmd(""), 2000);
+    try {
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(cmd);
+        setCopiedCmd(cmd);
+        setTimeout(() => setCopiedCmd(""), 2000);
+      } else {
+        // Fallback para contextos nao-seguros (HTTP sem localhost)
+        const textarea = document.createElement("textarea");
+        textarea.value = cmd;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textarea);
+        setCopiedCmd(cmd);
+        setTimeout(() => setCopiedCmd(""), 2000);
+      }
+    } catch {
+      console.warn("Failed to copy command to clipboard");
+    }
+  };
+
+  const safeStringify = (obj: any): string => {
+    try {
+      return JSON.stringify(obj, null, 2);
+    } catch {
+      return "// Unable to display: circular reference or invalid structure";
+    }
   };
 
   const filteredSkills = skills.filter(s => {
     const matchesCategory = filter === "All" || s.category === filter;
     const matchesSearch = !search ||
-      s.name.toLowerCase().includes(search.toLowerCase()) ||
-      s.description.toLowerCase().includes(search.toLowerCase()) ||
+      s.name?.toLowerCase().includes(search.toLowerCase()) ||
+      s.description?.toLowerCase().includes(search.toLowerCase()) ||
       (s.tags || []).some(t => t.toLowerCase().includes(search.toLowerCase()));
     return matchesCategory && matchesSearch;
   });
@@ -281,11 +357,15 @@ export default function Skills() {
                     <div className="p-4 bg-black/30 border border-white/5 rounded-xl">
                       <div className="flex items-center justify-between mb-2">
                         <span className="text-xs text-gray-400 uppercase tracking-widest">Security Evaluation</span>
-                        <span className="text-sm font-bold text-neon-cyan">{(evaluation.score * 100).toFixed(0)}%</span>
+                        <span className="text-sm font-bold text-neon-cyan">
+                          {isNaN(evaluation.score) ? '—' : `${(evaluation.score * 100).toFixed(0)}%`}
+                        </span>
                       </div>
                       <div className="h-2 bg-white/5 rounded-full overflow-hidden mb-2">
-                        <div className={`h-full rounded-full transition-all ${evaluation.score >= 0.8 ? 'bg-green-500' : evaluation.score >= 0.5 ? 'bg-yellow-500' : 'bg-red-500'}`}
-                          style={{ width: `${evaluation.score * 100}%` }} />
+                        {!isNaN(evaluation.score) && (
+                          <div className={`h-full rounded-full transition-all ${evaluation.score >= 0.8 ? 'bg-green-500' : evaluation.score >= 0.5 ? 'bg-yellow-500' : 'bg-red-500'}`}
+                            style={{ width: `${evaluation.score * 100}%` }} />
+                        )}
                       </div>
                       <p className="text-xs text-gray-500">{evaluation.explanation}</p>
                     </div>
@@ -333,13 +413,13 @@ export default function Skills() {
                   {selectedSkill.input_schema && (
                     <div>
                       <h3 className="text-sm font-bold text-gray-300 mb-2 flex items-center gap-2"><ArrowRight className="w-4 h-4 text-green-400" /> Input Schema</h3>
-                      <pre className="p-3 bg-black/40 border border-white/5 rounded-xl text-xs text-gray-300 font-mono overflow-x-auto">{JSON.stringify(selectedSkill.input_schema, null, 2)}</pre>
+                      <pre className="p-3 bg-black/40 border border-white/5 rounded-xl text-xs text-gray-300 font-mono overflow-x-auto">{safeStringify(selectedSkill.input_schema)}</pre>
                     </div>
                   )}
                   {selectedSkill.output_schema && (
                     <div>
                       <h3 className="text-sm font-bold text-gray-300 mb-2 flex items-center gap-2"><ArrowRight className="w-4 h-4 text-neon-cyan" /> Output Schema</h3>
-                      <pre className="p-3 bg-black/40 border border-white/5 rounded-xl text-xs text-gray-300 font-mono overflow-x-auto">{JSON.stringify(selectedSkill.output_schema, null, 2)}</pre>
+                      <pre className="p-3 bg-black/40 border border-white/5 rounded-xl text-xs text-gray-300 font-mono overflow-x-auto">{safeStringify(selectedSkill.output_schema)}</pre>
                     </div>
                   )}
 

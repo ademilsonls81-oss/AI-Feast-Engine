@@ -19,6 +19,7 @@ import skillsRouter from "./src/routes/skills.js";
 import publicRouter from "./src/routes/public.js";
 import { startCronJob } from "./src/services/skillScheduler.js";
 import { startMonthlyResetJob } from "./src/services/monthlyReset.js";
+import { startMonitor } from "./src/autonomous/monitor.js";
 
 // ==========================================
 // SECURITY: Timing-safe string comparison
@@ -451,7 +452,7 @@ async function startServer() {
 
 startServer();
 
-// Start skill import cron job and monthly reset (production only)
+// Start cron jobs (production only)
 if (process.env.NODE_ENV === "production") {
   try {
     startCronJob();
@@ -463,4 +464,12 @@ if (process.env.NODE_ENV === "production") {
   } catch (err: any) {
     console.error(`[Scheduler] Failed to start monthly reset: ${err.message}`);
   }
+  try {
+    startMonitor();
+  } catch (err: any) {
+    console.error(`[Scheduler] Failed to start autonomous monitor: ${err.message}`);
+  }
+} else {
+  // In dev, initialize monitor but keep it paused
+  startMonitor();
 }

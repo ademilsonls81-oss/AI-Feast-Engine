@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { motion } from "motion/react";
-import { ArrowRight, Globe, Database, CreditCard, Activity } from "lucide-react";
+import { ArrowRight, Globe, Database, CreditCard, Activity, CheckCircle2 } from "lucide-react";
 import { signInWithGoogle } from "../lib/supabaseClient";
 import api from "../lib/api";
 import { cn } from "../lib/utils";
@@ -201,7 +201,7 @@ export default function Landing() {
                       {skill.name}
                     </h4>
                     {skill.verified && (
-                      <Badge variant="verified" className="shrink-0" />
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-400/10 text-green-400 font-bold uppercase">Verified</span>
                     )}
                   </div>
                   <p className="text-xs text-gray-500 mb-4 line-clamp-2">{skill.description || "No description"}</p>
