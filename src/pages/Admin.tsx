@@ -59,6 +59,7 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
 export default function Admin() {
   const navigate = useNavigate();
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [feeds, setFeeds] = useState<any[]>([]);
   const [newFeed, setNewFeed] = useState({ url: "", name: "", category: "Tech" });
   const [logs, setLogs] = useState<any[]>([]);
@@ -84,6 +85,9 @@ export default function Admin() {
   const [autonomousEnabled, setAutonomousEnabled] = useState(true);
   const [isToggling, setIsToggling] = useState(false);
 
+  // Session status state
+  const [sessionExpired, setSessionExpired] = useState(false);
+
   // refs para evitar race conditions
   const isMountedRef = useRef(false);
   const importOperationId = useRef<number>(0);
@@ -92,7 +96,8 @@ export default function Admin() {
 
   useEffect(() => {
     isMountedRef.current = true;
-    
+    setSessionExpired(false);
+
     // Initial check com AbortController e tratamento de erro
     const abortController = new AbortController();
 
@@ -100,7 +105,7 @@ export default function Admin() {
       if (error) {
         console.error("[Admin] getUser error:", error);
         if (error.message.includes("Invalid API key") || error.status === 401) {
-          navigate("/admin");
+          setSessionExpired(true);
         }
         return;
       }
@@ -111,16 +116,18 @@ export default function Admin() {
     }).catch(err => {
       console.error("[Admin] getUser catch error:", err);
       if (err.message.includes("auth") || err.status === 401) {
-        navigate("/admin");
+        setSessionExpired(true);
       }
     });
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user && isMountedRef.current) {
+        setSessionExpired(false);
         checkAdminRole(session.user.id);
       } else if (isMountedRef.current) {
         setIsAdmin(false);
+        setSessionExpired(!session);
       }
     });
 
@@ -128,6 +135,7 @@ export default function Admin() {
       isMountedRef.current = false;
       abortController.abort();
       subscription.unsubscribe();
+      setIsLoading(false);
     };
   }, [navigate]);
 
@@ -480,6 +488,11 @@ export default function Admin() {
     }
   };
 
+  const handleRelogin = async () => {
+    // Redirect to login page or trigger sign in
+    window.location.href = "/";
+  };
+
   const handleAddFeed = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -497,6 +510,39 @@ export default function Admin() {
       isMountedRef.current = false;
     };
   }, []);
+
+  // Loading state
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-dark-bg flex items-center justify-center">
+        <div className="text-center">
+          <Spinner size="lg" />
+          <p className="text-gray-400 mt-4">Carregando painel administrativo...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Session expired state
+  if (sessionExpired) {
+    return (
+      <div className="min-h-screen bg-dark-bg flex items-center justify-center px-4">
+        <div className="text-center max-w-md">
+          <AlertCircle className="w-16 h-16 text-red-400 mx-auto mb-6" />
+          <h2 className="text-2xl font-bold text-white mb-3">Sessão Expirada</h2>
+          <p className="text-gray-400 mb-8">
+            Sua sessão expirou ou você não tem permissão para acessar esta área. Faça login novamente para continuar.
+          </p>
+          <button
+            onClick={handleRelogin}
+            className="px-8 py-4 bg-gradient-to-r from-neon-purple to-neon-cyan text-white rounded-xl font-bold shadow-lg shadow-neon-purple/20 hover:scale-105 transition-all"
+          >
+            Fazer Login Novamente
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (!isAdmin) return <div className="p-12 text-center text-red-400">Access Denied. Admin only.</div>;
 

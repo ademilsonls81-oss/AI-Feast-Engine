@@ -6,6 +6,7 @@ import Admin from "./pages/Admin";
 import SystemDashboard from "./pages/SystemDashboard";
 import SystemErrors from "./pages/admin/SystemErrors";
 import AutoFixes from "./pages/admin/AutoFixes";
+import NotFound from "./pages/NotFound";
 import Docs from "./pages/Docs";
 import PublicFeed from "./pages/PublicFeed";
 import Skills from "./pages/Skills";
@@ -49,6 +50,9 @@ export default function App() {
             <Route path="/terms" element={<Terms />} />
             <Route path="/status" element={
               <ErrorBoundary context="Status"><Status /></ErrorBoundary>
+            } />
+            <Route path="*" element={
+              <ErrorBoundary context="NotFound"><NotFound /></ErrorBoundary>
             } />
           </Routes>
         </ErrorBoundary>

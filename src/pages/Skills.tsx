@@ -357,11 +357,15 @@ export default function Skills() {
                     <div className="p-4 bg-black/30 border border-white/5 rounded-xl">
                       <div className="flex items-center justify-between mb-2">
                         <span className="text-xs text-gray-400 uppercase tracking-widest">Security Evaluation</span>
-                        <span className="text-sm font-bold text-neon-cyan">{(evaluation.score * 100).toFixed(0)}%</span>
+                        <span className="text-sm font-bold text-neon-cyan">
+                          {isNaN(evaluation.score) ? '—' : `${(evaluation.score * 100).toFixed(0)}%`}
+                        </span>
                       </div>
                       <div className="h-2 bg-white/5 rounded-full overflow-hidden mb-2">
-                        <div className={`h-full rounded-full transition-all ${evaluation.score >= 0.8 ? 'bg-green-500' : evaluation.score >= 0.5 ? 'bg-yellow-500' : 'bg-red-500'}`}
-                          style={{ width: `${evaluation.score * 100}%` }} />
+                        {!isNaN(evaluation.score) && (
+                          <div className={`h-full rounded-full transition-all ${evaluation.score >= 0.8 ? 'bg-green-500' : evaluation.score >= 0.5 ? 'bg-yellow-500' : 'bg-red-500'}`}
+                            style={{ width: `${evaluation.score * 100}%` }} />
+                        )}
                       </div>
                       <p className="text-xs text-gray-500">{evaluation.explanation}</p>
                     </div>

@@ -116,7 +116,18 @@ async function fetchAdminEndpoint<T>(endpoint: string): Promise<T> {
     throw new Error(`API error: ${response.status} ${response.statusText}`);
   }
 
-  return response.json();
+  // Check content-type before parsing as JSON
+  const contentType = response.headers.get("content-type");
+  if (!contentType || !contentType.includes("application/json")) {
+    throw new Error(`Invalid response format from API: ${contentType}`);
+  }
+
+  try {
+    return await response.json();
+  } catch (err) {
+    console.error("[SystemDashboard] JSON parse error:", err);
+    throw new Error("Failed to parse API response as JSON");
+  }
 }
 
 // ==========================================
@@ -236,6 +247,7 @@ export default function SystemDashboard() {
   // refs para evitar race conditions
   const lastRequestTimestamp = useRef<number>(0);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const initialMountDone = useRef<boolean>(false);
 
   // Verificar se é admin e redirecionar se necessário
   useEffect(() => {
@@ -342,9 +354,12 @@ export default function SystemDashboard() {
     }
   }, []);
 
-  // Initial fetch
+  // Initial fetch - only once on mount
   useEffect(() => {
-    fetchAllData();
+    if (!initialMountDone.current) {
+      initialMountDone.current = true;
+      fetchAllData();
+    }
   }, [fetchAllData]);
 
   // Polling a cada 30s com verificação de sessão
