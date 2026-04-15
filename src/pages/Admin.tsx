@@ -80,6 +80,10 @@ export default function Admin() {
   const [dryRunResult, setDryRunResult] = useState<any>(null);
   const [showDryRunModal, setShowDryRunModal] = useState(false);
 
+  // Kill switch state
+  const [autonomousEnabled, setAutonomousEnabled] = useState(true);
+  const [isToggling, setIsToggling] = useState(false);
+
   // refs para evitar race conditions
   const isMountedRef = useRef(false);
   const importOperationId = useRef<number>(0);
@@ -144,8 +148,60 @@ export default function Admin() {
     if (data?.role === 'admin') {
       setIsAdmin(true);
       console.log("✅ Admin access granted");
+      // Carregar estado do kill switch
+      fetchAutonomousStatus();
     } else {
       console.log("❌ Access denied: role is", data?.role);
+    }
+  }
+
+  async function fetchAutonomousStatus() {
+    try {
+      const { data, error } = await supabase
+        .from('system_settings')
+        .select('value')
+        .eq('key', 'autonomous_enabled')
+        .single();
+
+      if (error && !error.message.includes('no rows')) {
+        console.error("[Admin] fetchAutonomousStatus error:", error);
+        return;
+      }
+
+      if (data?.value !== undefined && isMountedRef.current) {
+        setAutonomousEnabled(data.value);
+      }
+    } catch (err) {
+      console.error("[Admin] fetchAutonomousStatus exception:", err);
+    }
+  }
+
+  async function handleToggleAutonomous() {
+    const newValue = !autonomousEnabled;
+    setIsToggling(true);
+    
+    try {
+      const { error } = await supabase
+        .from('system_settings')
+        .upsert({ key: 'autonomous_enabled', value: newValue }, { onConflict: 'key' });
+
+      if (error) {
+        throw error;
+      }
+
+      if (isMountedRef.current) {
+        setAutonomousEnabled(newValue);
+        alert(newValue 
+          ? "✅ Sistema autônomo REATIVADO" 
+          : "⚠️ Sistema autônomo PAUSADO");
+      }
+    } catch (err: any) {
+      console.error("[Admin] handleToggleAutonomous error:", err);
+      alert("❌ Erro ao alterar estado: " + (err.message || "Tente novamente"));
+    } finally {
+      if (isMountedRef.current) {
+        setIsToggling(false);
+      }
     }
   }
 
@@ -456,6 +512,37 @@ export default function Admin() {
         message="Manage feeds, generate skills with AI, and monitor import pipelines. All admin tools are below."
         onDismiss={() => setShowAdminTooltip(false)}
       />
+
+      {/* Kill Switch Card */}
+      <div className="mb-8 p-6 bg-dark-card border border-white/10 rounded-3xl">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className={`p-3 rounded-xl ${autonomousEnabled ? 'bg-green-500/20' : 'bg-red-500/20'}`}>
+              <Power className={`w-8 h-8 ${autonomousEnabled ? 'text-green-400' : 'text-red-400'}`} />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-white">Sistema Autônomo</h2>
+              <p className="text-sm text-gray-400">
+                {autonomousEnabled 
+                  ? "✅ Sistema operando normalmente" 
+                  : "⚠️ Sistema pausado - nenhuma ação automática será executada"}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={handleToggleAutonomous}
+            disabled={isToggling}
+            className={`px-6 py-3 rounded-xl font-bold transition-all flex items-center gap-2 ${
+              autonomousEnabled
+                ? "bg-red-500/20 border border-red-500/30 text-red-400 hover:bg-red-500/30"
+                : "bg-green-500/20 border border-green-500/30 text-green-400 hover:bg-green-500/30"
+            } disabled:opacity-50 disabled:cursor-not-allowed`}
+          >
+            <Power className={`w-5 h-5 ${isToggling ? 'animate-spin' : ''}`} />
+            {isToggling ? "Alterando..." : (autonomousEnabled ? "PAUSAR SISTEMA" : "ATIVAR SISTEMA")}
+          </button>
+        </div>
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
         {/* Manage Feeds */}

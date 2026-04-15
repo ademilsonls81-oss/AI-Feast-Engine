@@ -4,6 +4,8 @@ import Landing from "./pages/Landing";
 import Dashboard from "./pages/Dashboard";
 import Admin from "./pages/Admin";
 import SystemDashboard from "./pages/SystemDashboard";
+import SystemErrors from "./pages/admin/SystemErrors";
+import AutoFixes from "./pages/admin/AutoFixes";
 import Docs from "./pages/Docs";
 import PublicFeed from "./pages/PublicFeed";
 import Skills from "./pages/Skills";
@@ -35,6 +37,12 @@ export default function App() {
             } />
             <Route path="/admin/system" element={
               <ErrorBoundary context="SystemDashboard"><SystemDashboard /></ErrorBoundary>
+            } />
+            <Route path="/admin/system-errors" element={
+              <ErrorBoundary context="SystemErrors"><SystemErrors /></ErrorBoundary>
+            } />
+            <Route path="/admin/auto-fixes" element={
+              <ErrorBoundary context="AutoFixes"><AutoFixes /></ErrorBoundary>
             } />
             <Route path="/docs" element={<Docs />} />
             <Route path="/privacy" element={<Privacy />} />
