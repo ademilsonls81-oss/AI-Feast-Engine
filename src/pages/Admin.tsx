@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 import { Database, Plus, Trash2, Activity, List, ShieldCheck, Sparkles, Power, Eye, EyeOff, Play, FileText, AlertCircle } from "lucide-react";
@@ -80,8 +80,15 @@ export default function Admin() {
   const [dryRunResult, setDryRunResult] = useState<any>(null);
   const [showDryRunModal, setShowDryRunModal] = useState(false);
 
+  // refs para evitar race conditions
+  const isMountedRef = useRef(false);
+  const importOperationId = useRef<number>(0);
+  const previousSubscriptionRef = useRef<any>(null);
+
 
   useEffect(() => {
+    isMountedRef.current = true;
+    
     // Initial check com AbortController e tratamento de erro
     const abortController = new AbortController();
 
@@ -93,7 +100,7 @@ export default function Admin() {
         }
         return;
       }
-      if (user && !abortController.signal.aborted) {
+      if (user && !abortController.signal.aborted && isMountedRef.current) {
         setUserId(user.id);
         checkAdminRole(user.id);
       }
@@ -106,14 +113,15 @@ export default function Admin() {
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session?.user) {
+      if (session?.user && isMountedRef.current) {
         checkAdminRole(session.user.id);
-      } else {
+      } else if (isMountedRef.current) {
         setIsAdmin(false);
       }
     });
 
     return () => {
+      isMountedRef.current = false;
       abortController.abort();
       subscription.unsubscribe();
     };
@@ -146,6 +154,11 @@ export default function Admin() {
 
     // AbortController para cancelar requisições se desmontar
     const abortController = new AbortController();
+    
+    // Cleanup da subscription anterior se existir (evitar isAdmin flip)
+    if (previousSubscriptionRef.current) {
+      previousSubscriptionRef.current.cleanup?.();
+    }
 
     // Fetch initial feeds
     fetchFeeds();
@@ -156,7 +169,7 @@ export default function Admin() {
     const feedsSub = supabase
       .channel('admin-feeds')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'feeds' }, () => {
-        fetchFeeds();
+        if (isMountedRef.current) fetchFeeds();
       })
       .subscribe();
 
@@ -165,7 +178,7 @@ export default function Admin() {
     const logsSub = supabase
       .channel('admin-logs')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'usage_logs' }, () => {
-        fetchLogs();
+        if (isMountedRef.current) fetchLogs();
       })
       .subscribe();
 
@@ -174,7 +187,7 @@ export default function Admin() {
     const pendingSub = supabase
       .channel('admin-pending')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'posts' }, () => {
-        fetchPendingCount();
+        if (isMountedRef.current) fetchPendingCount();
       })
       .subscribe();
 
@@ -183,54 +196,105 @@ export default function Admin() {
     const auditSub = supabase
       .channel('admin-audit')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'audit_logs' }, () => {
-        fetchAuditLogs();
+        if (isMountedRef.current) fetchAuditLogs();
       })
       .subscribe();
 
+    // Guardar cleanup para próxima renderização
+    previousSubscriptionRef.current = {
+      cleanup: () => {
+        supabase.removeChannel(feedsSub);
+        supabase.removeChannel(logsSub);
+        supabase.removeChannel(pendingSub);
+        supabase.removeChannel(auditSub);
+      }
+    };
+
     return () => {
       abortController.abort();
-      supabase.removeChannel(feedsSub);
-      supabase.removeChannel(logsSub);
-      supabase.removeChannel(pendingSub);
-      supabase.removeChannel(auditSub);
+      if (previousSubscriptionRef.current?.cleanup) {
+        previousSubscriptionRef.current.cleanup();
+      }
     };
   }, [isAdmin]);
 
   async function fetchFeeds() {
-    const { data } = await supabase.from('feeds').select('*').order('created_at', { ascending: false });
-    setFeeds(data || []);
+    try {
+      const { data, error } = await supabase.from('feeds').select('*').order('created_at', { ascending: false });
+      if (error) {
+        console.error("[Admin] fetchFeeds error:", error);
+        return;
+      }
+      if (isMountedRef.current) {
+        setFeeds(data || []);
+      }
+    } catch (err) {
+      console.error("[Admin] fetchFeeds exception:", err);
+    }
   }
 
   async function fetchLogs() {
-    const { data } = await supabase
-      .from('usage_logs')
-      .select('*')
-      .order('timestamp', { ascending: false })
-      .limit(20);
-    setLogs(data || []);
+    try {
+      const { data, error } = await supabase
+        .from('usage_logs')
+        .select('*')
+        .order('timestamp', { ascending: false })
+        .limit(20);
+      if (error) {
+        console.error("[Admin] fetchLogs error:", error);
+        return;
+      }
+      if (isMountedRef.current) {
+        setLogs(data || []);
+      }
+    } catch (err) {
+      console.error("[Admin] fetchLogs exception:", err);
+    }
   }
 
   async function fetchPendingCount() {
-    const { count } = await supabase
-      .from('posts')
-      .select('*', { count: 'exact', head: true })
-      .eq('status', 'pending');
-    setPendingCount(count || 0);
+    try {
+      const { count, error } = await supabase
+        .from('posts')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'pending');
+      if (error) {
+        console.error("[Admin] fetchPendingCount error:", error);
+        return;
+      }
+      if (isMountedRef.current) {
+        setPendingCount(count || 0);
+      }
+    } catch (err) {
+      console.error("[Admin] fetchPendingCount exception:", err);
+    }
   }
 
   async function fetchAuditLogs() {
-    const { data } = await supabase
-      .from('audit_logs')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(20);
-    setAuditLogs(data || []);
+    try {
+      const { data, error } = await supabase
+        .from('audit_logs')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(20);
+      if (error) {
+        console.error("[Admin] fetchAuditLogs error:", error);
+        return;
+      }
+      if (isMountedRef.current) {
+        setAuditLogs(data || []);
+      }
+    } catch (err) {
+      console.error("[Admin] fetchAuditLogs exception:", err);
+    }
   }
 
   async function fetchSkills() {
     try {
       const res = await api.get("/api/skills");
-      setSkills(res.data.skills || []);
+      if (isMountedRef.current) {
+        setSkills(res.data.skills || []);
+      }
     } catch (err) {
       console.error("Error fetching skills:", err);
     }
@@ -289,38 +353,59 @@ export default function Admin() {
   async function fetchImportLogs() {
     try {
       const res = await api.get("/api/admin/skills/import/logs");
-      setImportLogs(res.data.logs || []);
+      if (isMountedRef.current) {
+        setImportLogs(res.data.logs || []);
+      }
     } catch (err) {
       console.error("Error fetching import logs:", err);
     }
   }
 
   async function handleRunImport() {
+    // Criar operation ID único para evitar race condition
+    const currentOpId = ++importOperationId.current;
     setIsImporting(true);
+    
     try {
       const headers = await getAuthHeaders();
       const res = await api.post("/api/admin/skills/import/manual", {}, { headers });
-      alert(`Import concluído: ${res.data.log.inserted} inseridas, ${res.data.log.updated} atualizadas`);
-      fetchImportLogs();
-      fetchSkills();
+      
+      // Only update if this is still the latest operation
+      if (currentOpId === importOperationId.current && isMountedRef.current) {
+        alert(`Import concluído: ${res.data.log.inserted} inseridas, ${res.data.log.updated} atualizadas`);
+        fetchImportLogs();
+        fetchSkills();
+      }
     } catch (err: any) {
-      alert("Erro no import: " + (err.response?.data?.error || err.message));
+      if (currentOpId === importOperationId.current) {
+        alert("Erro no import: " + (err.response?.data?.error || err.message));
+      }
     } finally {
-      setIsImporting(false);
+      if (currentOpId === importOperationId.current && isMountedRef.current) {
+        setIsImporting(false);
+      }
     }
   }
 
   async function handleDryRun() {
+    const currentOpId = ++importOperationId.current;
     setIsImporting(true);
     try {
       const headers = await getAuthHeaders();
       const res = await api.post("/api/admin/skills/import/manual", { dryRun: true }, { headers });
-      setDryRunResult(res.data.log);
-      setShowDryRunModal(true);
+      
+      if (currentOpId === importOperationId.current && isMountedRef.current) {
+        setDryRunResult(res.data.log);
+        setShowDryRunModal(true);
+      }
     } catch (err: any) {
-      alert("Erro no dry run: " + (err.response?.data?.error || err.message));
+      if (currentOpId === importOperationId.current) {
+        alert("Erro no dry run: " + (err.response?.data?.error || err.message));
+      }
     } finally {
-      setIsImporting(false);
+      if (currentOpId === importOperationId.current && isMountedRef.current) {
+        setIsImporting(false);
+      }
     }
   }
 
@@ -349,6 +434,13 @@ export default function Admin() {
       alert(`❌ Erro ao adicionar feed: ${errorMsg}`);
     }
   };
+
+  // Cleanup global ao desmontar
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   if (!isAdmin) return <div className="p-12 text-center text-red-400">Access Denied. Admin only.</div>;
 

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Globe, Search, Download, ExternalLink, ChevronRight, X, Check, Shield, Terminal, ArrowRight, AlertTriangle, AlertCircle, Info } from "lucide-react";
 import api from "../lib/api";
@@ -44,15 +44,48 @@ export default function Skills() {
   const [copiedCmd, setCopiedCmd] = useState("");
   const [evaluation, setEvaluation] = useState<any>(null);
 
+  // refs para evitar race conditions
+  const isMountedRef = useRef(false);
+  const currentSkillSlugRef = useRef<string | null>(null);
+  const initialLoadDoneRef = useRef(false);
+
   useEffect(() => {
-    fetchSkills();
+    isMountedRef.current = true;
+    
+    // Single fetch on mount - avoid double fetch
+    if (!initialLoadDoneRef.current) {
+      initialLoadDoneRef.current = true;
+      fetchSkills();
+    }
+
+    return () => {
+      isMountedRef.current = false;
+    };
   }, []);
 
   useEffect(() => {
     if (selectedSkill) {
+      currentSkillSlugRef.current = selectedSkill.slug;
       fetchEvaluation(selectedSkill.slug);
+    } else {
+      currentSkillSlugRef.current = null;
+      setEvaluation(null);
     }
   }, [selectedSkill]);
+
+  useEffect(() => { 
+    if (initialLoadDoneRef.current) {
+      fetchSkills();
+    }
+  }, [originFilter]);
+
+  // Helper: Promise with timeout
+  const withTimeout = <T,>(promise: Promise<T>, ms: number, errorMessage: string): Promise<T> => {
+    const timeout = new Promise<never>((_, reject) => 
+      setTimeout(() => reject(new Error(errorMessage)), ms)
+    );
+    return Promise.race([promise, timeout]);
+  };
 
   async function fetchSkills() {
     try {
@@ -60,23 +93,42 @@ export default function Skills() {
       if (originFilter === "AI Verified") params.verified = "true";
       if (originFilter === "Community Imported") params.source = "github";
 
-      const res = await api.get("/api/skills", { params });
-      setSkills(res.data.skills || []);
-    } catch (err) {
+      const request = api.get("/api/skills", { params });
+      const res = await withTimeout(request, 15000, "Timeout: Failed to load skills after 15s");
+      
+      // Only update state if component is still mounted
+      if (isMountedRef.current) {
+        setSkills(res.data.skills || []);
+      }
+    } catch (err: any) {
       console.error("Error fetching skills:", err);
+      if (isMountedRef.current) {
+        alert("⚠️ Erro ao carregar skills: " + (err.message || "Tente novamente"));
+      }
     } finally {
-      setLoading(false);
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
     }
   }
 
-  useEffect(() => { fetchSkills(); }, [originFilter]);
-
   async function fetchEvaluation(slug: string) {
+    // Guard: ignore if slug changed while request was in flight
+    if (currentSkillSlugRef.current !== slug) {
+      return;
+    }
+
     try {
       const res = await api.post(`/api/skills/${slug}/evaluate`);
-      setEvaluation(res.data);
+      
+      // Only update if still the same skill
+      if (currentSkillSlugRef.current === slug && isMountedRef.current) {
+        setEvaluation(res.data);
+      }
     } catch {
-      setEvaluation(null);
+      if (currentSkillSlugRef.current === slug && isMountedRef.current) {
+        setEvaluation(null);
+      }
     }
   }
 

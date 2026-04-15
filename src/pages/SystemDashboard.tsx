@@ -237,11 +237,12 @@ export default function SystemDashboard() {
   const lastRequestTimestamp = useRef<number>(0);
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  // Verificar se é admin
+  // Verificar se é admin e redirecionar se necessário
   useEffect(() => {
     if (!loading) {
       if (!user || profile?.role !== "admin") {
         navigate("/admin");
+        return; // Previne renderização e chamadas API
       }
     }
   }, [user, profile, loading, navigate]);
@@ -262,6 +263,14 @@ export default function SystemDashboard() {
       return false;
     }
   }
+
+  // Helper: Promise with timeout
+  const withTimeout = <T,>(promise: Promise<T>, ms: number, errorMessage: string): Promise<T> => {
+    const timeout = new Promise<never>((_, reject) => 
+      setTimeout(() => reject(new Error(errorMessage)), ms)
+    );
+    return Promise.race([promise, timeout]);
+  };
 
   // Fetch all data
   const fetchAllData = useCallback(async () => {
@@ -285,11 +294,11 @@ export default function SystemDashboard() {
 
       // Usar Promise.allSettled em vez de Promise.all para evitar fail-fast
       const results = await Promise.allSettled([
-        fetchAdminEndpoint<SystemStatus>("/system/status"),
-        fetchAdminEndpoint<{ errors: SystemError[] }>("/system/errors?limit=10"),
-        fetchAdminEndpoint<{ fixes: AutoFix[] }>("/system/fixes?limit=10"),
-        fetchAdminEndpoint<{ decisions: RiskDecision[] }>("/system/decisions?limit=10"),
-        fetchAdminEndpoint<Metrics>("/system/metrics")
+        withTimeout(fetchAdminEndpoint<SystemStatus>("/system/status"), 15000, "Status timeout"),
+        withTimeout(fetchAdminEndpoint<{ errors: SystemError[] }>("/system/errors?limit=10"), 15000, "Errors timeout"),
+        withTimeout(fetchAdminEndpoint<{ fixes: AutoFix[] }>("/system/fixes?limit=10"), 15000, "Fixes timeout"),
+        withTimeout(fetchAdminEndpoint<{ decisions: RiskDecision[] }>("/system/decisions?limit=10"), 15000, "Decisions timeout"),
+        withTimeout(fetchAdminEndpoint<Metrics>("/system/metrics"), 15000, "Metrics timeout")
       ]);
 
       // Verificar se ainda é a última requisição (evitar race condition)
@@ -320,6 +329,11 @@ export default function SystemDashboard() {
     } catch (err: any) {
       console.error("[SystemDashboard] Error fetching data:", err);
       setError(err.message);
+      
+      // Show user-friendly error if timeout or network issue
+      if (err.message.includes("timeout") || err.message.includes("Failed to fetch")) {
+        alert("⚠️ Erro de conexão ou tempo esgotado. Verifique sua internet e tente novamente.");
+      }
     } finally {
       // Só remover loading se ainda for a última requisição
       if (requestTime === lastRequestTimestamp.current && !controller.signal.aborted) {
