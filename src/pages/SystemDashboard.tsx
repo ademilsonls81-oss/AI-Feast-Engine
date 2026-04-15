@@ -11,7 +11,7 @@
  * Atualização em tempo real via polling a cada 30s.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { supabase } from "../lib/supabaseClient";
@@ -233,6 +233,10 @@ export default function SystemDashboard() {
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
   const [error, setError] = useState<string | null>(null);
 
+  // refs para evitar race conditions
+  const lastRequestTimestamp = useRef<number>(0);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
   // Verificar se é admin
   useEffect(() => {
     if (!loading) {
@@ -242,13 +246,45 @@ export default function SystemDashboard() {
     }
   }, [user, profile, loading, navigate]);
 
+  // Helper para verificar sessão válida antes de fetch
+  async function checkSessionAndRedirect(): Promise<boolean> {
+    try {
+      const { data: { session }, error } = await supabase.auth.getSession();
+      if (error || !session) {
+        console.error("[SystemDashboard] Session expired or error:", error);
+        navigate("/admin");
+        return false;
+      }
+      return true;
+    } catch (err) {
+      console.error("[SystemDashboard] Session check error:", err);
+      navigate("/admin");
+      return false;
+    }
+  }
+
   // Fetch all data
   const fetchAllData = useCallback(async () => {
+    // Criar novo AbortController para esta requisição
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    const requestTime = Date.now();
+    lastRequestTimestamp.current = requestTime;
+
     try {
       setError(null);
       setLoadingData(true);
 
-      const [statusData, errorsData, fixesData, decisionsData, metricsData] = await Promise.all([
+      // Verificar sessão antes de continuar
+      const hasValidSession = await checkSessionAndRedirect();
+      if (!hasValidSession) return;
+
+      // Usar Promise.allSettled em vez de Promise.all para evitar fail-fast
+      const results = await Promise.allSettled([
         fetchAdminEndpoint<SystemStatus>("/system/status"),
         fetchAdminEndpoint<{ errors: SystemError[] }>("/system/errors?limit=10"),
         fetchAdminEndpoint<{ fixes: AutoFix[] }>("/system/fixes?limit=10"),
@@ -256,17 +292,39 @@ export default function SystemDashboard() {
         fetchAdminEndpoint<Metrics>("/system/metrics")
       ]);
 
-      setStatus(statusData);
-      setErrors(errorsData.errors);
-      setFixes(fixesData.fixes);
-      setDecisions(decisionsData.decisions);
-      setMetrics(metricsData);
+      // Verificar se ainda é a última requisição (evitar race condition)
+      if (requestTime !== lastRequestTimestamp.current || controller.signal.aborted) {
+        console.log("[SystemDashboard] Ignoring stale response");
+        return;
+      }
+
+      // Processar resultados filtrando apenas os fulfilled
+      const [statusResult, errorsResult, fixesResult, decisionsResult, metricsResult] = results;
+
+      if (statusResult.status === "fulfilled") setStatus(statusResult.value);
+      else console.error("[SystemDashboard] Status fetch failed:", statusResult.reason);
+
+      if (errorsResult.status === "fulfilled") setErrors(errorsResult.value.errors || []);
+      else console.error("[SystemDashboard] Errors fetch failed:", errorsResult.reason);
+
+      if (fixesResult.status === "fulfilled") setFixes(fixesResult.value.fixes || []);
+      else console.error("[SystemDashboard] Fixes fetch failed:", fixesResult.reason);
+
+      if (decisionsResult.status === "fulfilled") setDecisions(decisionsResult.value.decisions || []);
+      else console.error("[SystemDashboard] Decisions fetch failed:", decisionsResult.reason);
+
+      if (metricsResult.status === "fulfilled") setMetrics(metricsResult.value);
+      else console.error("[SystemDashboard] Metrics fetch failed:", metricsResult.reason);
+
       setLastRefresh(new Date());
     } catch (err: any) {
       console.error("[SystemDashboard] Error fetching data:", err);
       setError(err.message);
     } finally {
-      setLoadingData(false);
+      // Só remover loading se ainda for a última requisição
+      if (requestTime === lastRequestTimestamp.current && !controller.signal.aborted) {
+        setLoadingData(false);
+      }
     }
   }, []);
 
@@ -275,11 +333,37 @@ export default function SystemDashboard() {
     fetchAllData();
   }, [fetchAllData]);
 
-  // Polling a cada 30s
+  // Polling a cada 30s com verificação de sessão
   useEffect(() => {
-    const interval = setInterval(fetchAllData, 30000);
-    return () => clearInterval(interval);
-  }, [fetchAllData]);
+    let intervalId: NodeJS.Timeout | null = null;
+
+    const startPolling = async () => {
+      // Verificar sessão antes de iniciar polling
+      const hasValidSession = await checkSessionAndRedirect();
+      if (!hasValidSession) return;
+
+      intervalId = setInterval(async () => {
+        // Verificar sessão a cada intervalo
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
+          console.log("[SystemDashboard] Session expired during polling, stopping");
+          if (intervalId) clearInterval(intervalId);
+          navigate("/admin");
+          return;
+        }
+        fetchAllData();
+      }, 30000);
+    };
+
+    startPolling();
+
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, [fetchAllData, navigate]);
 
   if (loading || loadingData && !status) {
     return (

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 import { Database, Plus, Trash2, Activity, List, ShieldCheck, Sparkles, Power, Eye, EyeOff, Play, FileText, AlertCircle } from "lucide-react";
 import api from "../lib/api";
@@ -56,6 +57,7 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
 }
 
 export default function Admin() {
+  const navigate = useNavigate();
   const [isAdmin, setIsAdmin] = useState(false);
   const [feeds, setFeeds] = useState<any[]>([]);
   const [newFeed, setNewFeed] = useState({ url: "", name: "", category: "Tech" });
@@ -80,11 +82,25 @@ export default function Admin() {
 
 
   useEffect(() => {
-    // Initial check
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (user) {
+    // Initial check com AbortController e tratamento de erro
+    const abortController = new AbortController();
+
+    supabase.auth.getUser().then(({ data: { user }, error }) => {
+      if (error) {
+        console.error("[Admin] getUser error:", error);
+        if (error.message.includes("Invalid API key") || error.status === 401) {
+          navigate("/admin");
+        }
+        return;
+      }
+      if (user && !abortController.signal.aborted) {
         setUserId(user.id);
         checkAdminRole(user.id);
+      }
+    }).catch(err => {
+      console.error("[Admin] getUser catch error:", err);
+      if (err.message.includes("auth") || err.status === 401) {
+        navigate("/admin");
       }
     });
 
@@ -97,8 +113,11 @@ export default function Admin() {
       }
     });
 
-    return () => subscription.unsubscribe();
-  }, []);
+    return () => {
+      abortController.abort();
+      subscription.unsubscribe();
+    };
+  }, [navigate]);
 
   async function checkAdminRole(userId: string) {
     const { data, error } = await supabase
@@ -124,6 +143,9 @@ export default function Admin() {
 
   useEffect(() => {
     if (!isAdmin) return;
+
+    // AbortController para cancelar requisições se desmontar
+    const abortController = new AbortController();
 
     // Fetch initial feeds
     fetchFeeds();
@@ -166,6 +188,7 @@ export default function Admin() {
       .subscribe();
 
     return () => {
+      abortController.abort();
       supabase.removeChannel(feedsSub);
       supabase.removeChannel(logsSub);
       supabase.removeChannel(pendingSub);

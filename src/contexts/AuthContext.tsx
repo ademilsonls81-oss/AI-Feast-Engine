@@ -19,14 +19,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check session
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    // Check session com tratamento de erro
+    supabase.auth.getSession().then(({ data: { session }, error }) => {
+      if (error) {
+        console.error("[AuthContext] getSession error:", error);
+        setLoading(false);
+        return;
+      }
       setUser(session?.user || null);
       if (session?.user) {
         fetchProfile(session.user.id);
       } else {
         setLoading(false);
       }
+    }).catch(err => {
+      console.error("[AuthContext] getSession catch error:", err);
+      setLoading(false);
     });
 
     // Listen for changes
@@ -50,12 +58,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .select('*')
         .eq('id', userId)
         .single();
+
+      if (error) {
+        console.error("[AuthContext] fetchProfile error:", error);
+        return;
+      }
       
-      if (!error && data) {
+      if (data) {
         setProfile(data as UserProfile);
       }
     } catch (err) {
-      console.error("Profile fetch error:", err);
+      console.error("[AuthContext] Profile fetch exception:", err);
     } finally {
       setLoading(false);
     }
