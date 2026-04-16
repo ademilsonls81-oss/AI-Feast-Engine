@@ -24,7 +24,7 @@
  */
 
 import http from "http";
-import { supabase } from "../lib/supabase.js";
+import { supabase } from "../lib/supabaseClient";
 import { restoreFromBackup } from "./fixer.js";
 
 // ==========================================

@@ -6,7 +6,7 @@
  * to enable threshold-based monitoring and auto-diagnosis.
  */
 
-import { supabase } from "../lib/supabase.js";
+import { supabase } from "../lib/supabaseClient";
 
 export type ErrorType =
   | "api_error"

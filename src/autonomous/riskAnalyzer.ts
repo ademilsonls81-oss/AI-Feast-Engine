@@ -24,7 +24,7 @@
  *   6. Return RiskAnalysisResult for downstream processing
  */
 
-import { supabase } from "../lib/supabase.js";
+import { supabase } from "../lib/supabaseClient";
 import type { DiagnosisResult } from "./diagnostician.js";
 
 // ==========================================

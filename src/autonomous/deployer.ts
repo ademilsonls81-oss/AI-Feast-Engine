@@ -26,7 +26,7 @@
 
 import { exec } from "child_process";
 import { promisify } from "util";
-import { supabase } from "../lib/supabase.js";
+import { supabase } from "../lib/supabaseClient";
 import { checkDeployProtections, recordDeploy } from "./protections.js";
 
 const execAsync = promisify(exec);

@@ -1,5 +1,5 @@
 import { Router, Request, Response } from "express";
-import { supabase } from "../lib/supabase.js";
+import { supabase } from "../lib/supabaseClient";
 import { apiKeyRateLimit } from "../middleware/rateLimit.js";
 
 const router = Router();

@@ -1,5 +1,5 @@
 import cron from "node-cron";
-import { supabase } from "../lib/supabase.js";
+import { supabase } from "../lib/supabaseClient";
 import { discoverRepos } from "./githubDiscovery.js";
 import { extractSkillsFromRepo } from "./skillExtractor.js";
 import { normalizeSkill } from "./skillNormalizer.js";

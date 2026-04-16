@@ -4,7 +4,7 @@
  * Executado automaticamente quando o servidor inicia
  */
 
-import { supabase } from "../lib/supabase.js";
+import { supabase } from "../lib/supabaseClient";
 
 let isRunning = false;
 let lastResetDate: string | null = null;

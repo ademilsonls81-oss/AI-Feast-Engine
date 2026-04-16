@@ -14,7 +14,7 @@
  * Se alguma proteção bloquear, o loop NÃO executa.
  */
 
-import { supabase } from "../lib/supabase.js";
+import { supabase } from "../lib/supabaseClient";
 
 // ==========================================
 // CONFIGURAÇÃO

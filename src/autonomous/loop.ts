@@ -27,7 +27,7 @@
  *   - REPORTS loop duration for performance monitoring
  */
 
-import { supabase } from "../lib/supabase.js";
+import { supabase } from "../lib/supabaseClient";
 import { runDiagnosis } from "./diagnostician.js";
 import { fullRiskPipeline } from "./riskAnalyzer.js";
 import { applyFix } from "./fixer.js";
