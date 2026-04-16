@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+import { supabase } from "../lib/supabaseClient";
 import OpenAI from "openai";
 
 const MAX_CONCURRENT_POSTS = Number(process.env.MAX_CONCURRENT_POSTS) || 1;
@@ -21,10 +21,7 @@ function cleanJSON(text: string): string {
 class QueueService {
   private queue: string[] = [];
   private processingCount = 0;
-  private supabase = createClient(
-    process.env.VITE_SUPABASE_URL || "",
-    process.env.SUPABASE_SERVICE_ROLE_KEY || ""
-  );
+  private supabaseClient = supabase;
   
   private openai = new OpenAI({
     baseURL: "https://api.groq.com/openai/v1",
@@ -32,7 +29,7 @@ class QueueService {
   });
 
   constructor() {
-    console.log(`[QueueService] Inicializado. Concorrência: ${MAX_CONCURRENT_POSTS}, Delay: ${BATCH_DELAY_MS}ms`);
+    console.log(`[QueueService] Inicializado. ConcorrÃƒÂªncia: ${MAX_CONCURRENT_POSTS}, Delay: ${BATCH_DELAY_MS}ms`);
   }
 
   public addTasks(postIds: string[]) {
@@ -61,29 +58,29 @@ class QueueService {
   }
 
   private async processPost(postId: string) {
-    await this.supabase.from("posts").update({ status: "processing" }).eq("id", postId);
+    await this.supabaseClient.from("posts").update({ status: "processing" }).eq("id", postId);
 
-    const { data: post, error: fetchError } = await this.supabase
+    const { data: post, error: fetchError } = await this.supabaseClient
       .from("posts")
       .select("*")
       .eq("id", postId)
       .single();
 
-    if (fetchError || !post) throw new Error(`Post ${postId} não encontrado`);
+    if (fetchError || !post) throw new Error(`Post ${postId} nÃƒÂ£o encontrado`);
 
     const result = await this.processWithOpenRouter(post);
     const retryCount = (post.retry_count || 0) + 1;
 
     if (result.error) {
       if (retryCount >= 5) {
-        await this.supabase.from("posts").update({
+        await this.supabaseClient.from("posts").update({
           status: "error",
           error_message: result.error,
           retry_count: retryCount
         }).eq("id", postId);
-        console.log(`[QueueService] Post ${postId} falhou definitivamente após ${retryCount} tentativas`);
+        console.log(`[QueueService] Post ${postId} falhou definitivamente apÃƒÂ³s ${retryCount} tentativas`);
       } else {
-        await this.supabase.from("posts").update({
+        await this.supabaseClient.from("posts").update({
           status: "pending",
           error_message: result.error,
           retry_count: retryCount
@@ -93,7 +90,7 @@ class QueueService {
       return;
     }
 
-    await this.supabase.from("posts").update({
+    await this.supabaseClient.from("posts").update({
       summary: result.summary,
       translations: result.translations,
       status: "published",
@@ -145,7 +142,7 @@ Content: ${sourceText}`;
 
         const responseText = completion.choices[0].message.content || "";
 
-        // Limpar response usando função dedicada
+        // Limpar response usando funÃƒÂ§ÃƒÂ£o dedicada
         let jsonStr = cleanJSON(responseText);
 
         // Regex fallback: extrair primeiro bloco JSON se o texto vier misturado
@@ -161,12 +158,12 @@ Content: ${sourceText}`;
         } catch (parseError: any) {
           console.log(`[Groq] JSON parse error: ${parseError.message}`);
           console.log(`[Groq] Raw response (first 200 chars): ${responseText.substring(0, 200)}`);
-          // Tenta parse direto sem regex (pode ser que o cleanJSON já resolveu)
-          throw new Error(`JSON inválido após limpeza: ${parseError.message}`);
+          // Tenta parse direto sem regex (pode ser que o cleanJSON jÃƒÂ¡ resolveu)
+          throw new Error(`JSON invÃƒÂ¡lido apÃƒÂ³s limpeza: ${parseError.message}`);
         }
 
         if (parsed.summary && parsed.translations && typeof parsed.summary === 'string') {
-          // Validar traduções
+          // Validar traduÃƒÂ§ÃƒÂµes
           const requiredLangs = ['en', 'es', 'fr', 'de', 'it', 'ja', 'ko', 'zh', 'ru', 'ar'];
           const allTranslationsPresent = requiredLangs.every(lang => parsed.translations[lang] && parsed.translations[lang].length > 0);
 
