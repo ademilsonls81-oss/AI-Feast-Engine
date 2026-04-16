@@ -206,13 +206,13 @@ export default function Skills() {
         </motion.div>
 
         {/* Filters */}
-        <div className="flex flex-col md:flex-row items-center justify-between gap-6 mb-12 p-2 bg-dark-card border border-white/5 rounded-2xl">
-          <div className="flex items-center gap-2 overflow-x-auto pb-2 md:pb-0 px-2 w-full md:w-auto">
+        <div className="flex flex-col md:flex-row items-center justify-between gap-6 mb-12 p-4 bg-dark-card border border-white/5 rounded-2xl">
+          <div className="flex items-center gap-3 overflow-x-auto pb-2 md:pb-0 px-2 w-full md:w-auto scrollbar-hide">
             {categories.map((cat) => (
               <button
                 key={cat}
                 onClick={() => setFilter(cat)}
-                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
+                className={`px-5 py-3 rounded-xl text-sm font-bold transition-all whitespace-nowrap ${
                   filter === cat
                     ? "bg-neon-cyan text-black shadow-lg shadow-neon-cyan/20"
                     : "text-gray-500 hover:text-gray-300 hover:bg-white/5"
@@ -223,7 +223,7 @@ export default function Skills() {
             ))}
           </div>
           {/* Origin Filter */}
-          <div className="flex items-center gap-2 overflow-x-auto pb-2 md:pb-0 px-2 w-full md:w-auto">
+          <div className="flex items-center gap-3 overflow-x-auto pb-2 md:pb-0 px-2 w-full md:w-auto scrollbar-hide">
             {originFilters.map((of) => {
               const isActive = originFilter === of;
               const variant: "ai-verified" | "community" | "tag" =
@@ -265,14 +265,14 @@ export default function Skills() {
         ) : filteredSkills.length === 0 ? (
           <EmptyState title="Nenhum skill encontrado" description="Tente ajustar os filtros." />
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 max-w-7xl mx-auto">
             {filteredSkills.map((skill, idx) => (
               <motion.article
                 key={skill.id}
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: idx * 0.05 }}
-                className="group bg-dark-card border border-white/10 rounded-3xl p-6 hover:border-neon-cyan/30 transition-all cursor-pointer"
+                className="group bg-dark-card border border-white/10 rounded-3xl p-8 hover:border-neon-cyan/30 transition-all cursor-pointer min-h-[200px]"
                 onClick={() => setSelectedSkill(skill)}
               >
                 {/* Header */}
