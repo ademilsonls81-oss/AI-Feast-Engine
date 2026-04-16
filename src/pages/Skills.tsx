@@ -301,7 +301,7 @@ export default function Skills() {
 
                 {/* Footer */}
                 <div className="flex items-center justify-between pt-4 border-t border-white/5">
-                  <RiskBadge score={skill.validation_score ?? 0.5} />
+                  <RiskBadge score={skill.validation_score ?? 0.5} showPercent />
                   <div className="flex items-center gap-3 text-[10px] text-gray-500">
                     <span className="flex items-center gap-1"><Download className="w-3 h-3" />{skill.downloads || 0}</span>
                     <ChevronRight className="w-3 h-3 text-neon-cyan group-hover:translate-x-1 transition-transform" />
@@ -346,7 +346,7 @@ export default function Skills() {
                 <div className="p-6 space-y-6">
                   {/* Badges */}
                   <div className="flex flex-wrap gap-2">
-                    <RiskBadge score={selectedSkill.validation_score ?? 0.5} />
+                    <RiskBadge score={selectedSkill.validation_score ?? 0.5} showPercent />
                     {selectedSkill.verified && (
                       <Badge variant="ai-verified" />
                     )}
