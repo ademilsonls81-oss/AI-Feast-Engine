@@ -19,7 +19,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const isActive = (path: string) => location.pathname === path;
 
   return (
-    <div className="min-h-screen bg-black text-white font-sans selection:bg-neon-purple selection:text-white">
+    <div className="min-h-screen bg-background text-white font-sans selection:bg-neon-purple selection:text-white">
       {/* Navbar */}
       <nav className="fixed top-0 left-0 right-0 z-50 bg-black/50 backdrop-blur-xl border-b border-white/5">
         <div className="container mx-auto px-6 h-20 flex items-center justify-between">
