@@ -9,8 +9,10 @@ import {
   SkeletonGrid,
   EmptyState,
   Input,
+  Button
 } from "../components/ui";
-import { Sparkles, Code, FileText, Bot, BarChart2, ShieldCheck, Download, ChevronRight, X, Check, Terminal, ExternalLink, ArrowRight, Info, Star, Circle, Search } from "lucide-react";
+import { Sparkles, Code, FileText, Bot, BarChart2, ShieldCheck, Download, ChevronRight, X, Check, Terminal, ExternalLink, ArrowRight, Info, Star, Circle, Search, Loader2, Zap } from "lucide-react";
+import { getAuthHeaders } from "../lib/authHeaders";
 
 interface Skill {
   id: string;
@@ -46,6 +48,9 @@ export default function Skills() {
   const [selectedSkill, setSelectedSkill] = useState<Skill | null>(null);
   const [copiedCmd, setCopiedCmd] = useState("");
   const [evaluation, setEvaluation] = useState<any>(null);
+  const [testInput, setTestInput] = useState("");
+  const [testResult, setTestResult] = useState<any>(null);
+  const [executing, setExecuting] = useState(false);
   const location = useLocation();
 
   // refs to avoid race conditions
@@ -183,6 +188,32 @@ export default function Skills() {
     }
   };
 
+  async function handleExecute(skill: Skill) {
+    if (!testInput.trim()) return;
+    setExecuting(true);
+    setTestResult(null);
+    try {
+      const headers = await getAuthHeaders();
+      const userRes = await api.get('/api/user/api-key', { headers });
+      const apiKey = userRes.data?.api_key;
+      
+      if (!apiKey) {
+        setTestResult({ error: "No API Key found. Go to Dashboard to generate one." });
+        return;
+      }
+
+      const res = await api.post(`/api/skills/${skill.slug}/execute`, 
+        { input: testInput },
+        { headers: { 'X-API-Key': apiKey } }
+      );
+      setTestResult(res.data);
+    } catch (err: any) {
+      setTestResult({ error: err?.response?.data?.error || "Execution failed" });
+    } finally {
+      setExecuting(false);
+    }
+  }
+
   const filteredSkills = skills.filter(s => {
     const matchesCategory = filter === "All" || s.category === filter;
     const matchesSearch = !search ||
@@ -205,12 +236,12 @@ export default function Skills() {
 
   const translateCategory = (cat: string) => {
     switch (cat) {
-      case "All": return "Todos";
+      case "All": return "All";
       case "development": return "Dev";
-      case "content": return "Conteúdo";
-      case "automation": return "Automação";
-      case "analysis": return "Análise";
-      case "security": return "Segurança";
+      case "content": return "Content";
+      case "automation": return "Automation";
+      case "analysis": return "Analysis";
+      case "security": return "Security";
       default: return cat;
     }
   };
@@ -220,28 +251,28 @@ export default function Skills() {
       <div className="container mx-auto max-w-6xl">
         {/* Hero */}
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="pt-16 pb-8 text-center"
-        >
-          <h1 className="text-4xl md:text-5xl font-display font-bold mb-4">
-            Catálogo de <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-accent">Skills</span>
-          </h1>
-          <p className="text-gray-400 text-base max-w-2xl mx-auto mb-8">
-            Explore agentes IA validados e prontos para integração em seus projetos
-          </p>
-
-          <div className="relative max-w-2xl mx-auto mb-12">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
-            <input
-              type="text"
-              placeholder="Buscar skills por nome, descrição ou tag..."
-              className="w-full bg-black/40 border border-white/10 rounded-2xl pl-12 pr-4 py-3 text-sm focus:border-primary outline-none transition-all"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-          </div>
-        </motion.div>
+           initial={{ opacity: 0, y: 20 }}
+           animate={{ opacity: 1, y: 0 }}
+           className="pt-16 pb-8 text-center"
+         >
+           <h1 className="text-4xl md:text-5xl font-display font-bold mb-4">
+             AI Skill <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-accent">Marketplace</span>
+           </h1>
+           <p className="text-gray-400 text-base max-w-2xl mx-auto mb-8">
+             Explore validated AI skills ready for instant integration in your projects.
+           </p>
+ 
+           <div className="relative max-w-2xl mx-auto mb-12">
+             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
+             <input
+               type="text"
+               placeholder="Search skills by name, description or tag..."
+               className="w-full bg-black/40 border border-white/10 rounded-2xl pl-12 pr-4 py-3 text-sm focus:border-primary outline-none transition-all"
+               value={search}
+               onChange={(e) => setSearch(e.target.value)}
+             />
+           </div>
+         </motion.div>
 
         {/* Filters */}
         <div className="flex flex-col md:flex-row items-center justify-between mb-8">
@@ -365,7 +396,7 @@ export default function Skills() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
-              onClick={() => { setSelectedSkill(null); setEvaluation(null); }}
+              onClick={() => { setSelectedSkill(null); setEvaluation(null); setTestInput(""); setTestResult(null); }}
             >
               <motion.div
                 initial={{ scale: 0.95, opacity: 0 }}
@@ -385,7 +416,7 @@ export default function Skills() {
                       <span className="text-xs text-gray-500 font-mono">{selectedSkill.slug}</span>
                     </div>
                   </div>
-                  <button onClick={() => { setSelectedSkill(null); setEvaluation(null); }} className="p-2 hover:bg-white/5 rounded-lg transition-colors">
+                  <button onClick={() => { setSelectedSkill(null); setEvaluation(null); setTestInput(""); setTestResult(null); }} className="p-2 hover:bg-white/5 rounded-lg transition-colors">
                     <X className="w-5 h-5" />
                   </button>
                 </div>
@@ -459,6 +490,43 @@ export default function Skills() {
                         {copiedCmd.includes(selectedSkill.slug) && copiedCmd.includes("run") ? <Check className="w-4 h-4 text-green-400" /> : <Terminal className="w-4 h-4 text-gray-400" />}
                       </button>
                     </div>
+                  </div>
+
+                  {/* Try It Live */}
+                  <div className="p-5 bg-primary/5 border border-primary/10 rounded-2xl space-y-4">
+                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                       <Sparkles className="w-4 h-4 text-primary" /> Try it Live
+                    </h3>
+                    <div className="space-y-3">
+                      <textarea
+                        value={testInput}
+                        onChange={(e) => setTestInput(e.target.value)}
+                        placeholder="Enter test input here..."
+                        className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-sm font-mono focus:border-primary outline-none min-h-[80px]"
+                      />
+                      <Button
+                        onClick={() => handleExecute(selectedSkill)}
+                        disabled={executing || !testInput.trim()}
+                        className="w-full bg-primary hover:bg-primary/90 text-white font-bold h-10 gap-2"
+                      >
+                        {executing ? <><Loader2 className="w-4 h-4 animate-spin" /> Running...</> : <><Zap className="w-4 h-4" /> Run Skill</>}
+                      </Button>
+                    </div>
+
+                    <AnimatePresence>
+                      {testResult && (
+                        <motion.div 
+                          initial={{ opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: 'auto' }}
+                          className="pt-4 border-t border-white/10"
+                        >
+                           <p className="text-[10px] uppercase tracking-widest text-gray-500 mb-2">Output</p>
+                           <pre className={`p-3 rounded-xl text-xs font-mono overflow-x-auto ${testResult.error ? 'bg-red-500/10 text-red-400 border border-red-500/10' : 'bg-black/60 text-green-400 border border-white/5'}`}>
+                              {JSON.stringify(testResult, null, 2)}
+                           </pre>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                   </div>
 
                   {/* Schemas */}

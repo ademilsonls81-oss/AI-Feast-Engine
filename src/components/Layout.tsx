@@ -3,7 +3,7 @@ import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { signInWithGoogle } from "../lib/supabaseClient";
 import { motion } from "motion/react";
-import { LayoutDashboard, Shield, LogOut, Zap, User, Puzzle, Activity, AlertTriangle, Wrench, Database } from "lucide-react";
+import { LayoutDashboard, Shield, LogOut, Zap, User, Puzzle, Activity, AlertTriangle, Wrench, Database, ListChecks, Cpu, Factory } from "lucide-react";
 import { Button } from "./ui";
 import Footer from "./layout/Footer";
 
@@ -11,8 +11,10 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const { user, profile, loading, signOut } = useAuth();
   const location = useLocation();
 
+  // Navigation Items for the main menu
   const navItems = [
     { name: "Validar", path: "/valide", icon: Zap },
+    { name: "Engine", path: "/engine", icon: Factory }, // Usando Factory para destacar a Engine/Factory
     { name: "Skills", path: "/skills", icon: Puzzle },
     { name: "Status", path: "/status", icon: Activity },
   ];
@@ -33,6 +35,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             </span>
           </Link>
 
+          {/* Desktop Nav - Mostra os links principais (Validar, Engine, Skills, Status) */}
           <div className="hidden md:flex items-center gap-8">
             {navItems.map((item) => (
               <Link
@@ -74,7 +77,16 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                       }`}
                     >
                       <Activity className="w-3.5 h-3.5" />
-                      Dashboard
+                      Admin
+                    </Link>
+                    <Link
+                      to="/admin/audit-logs"
+                      className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold transition-all ${
+                        isActive("/admin/audit-logs") ? "text-neon-cyan bg-neon-cyan/10" : "text-gray-400 hover:text-white hover:bg-white/5"
+                      }`}
+                    >
+                      <ListChecks className="w-3.5 h-3.5" />
+                      Audit
                     </Link>
                     <Link
                       to="/admin/system-errors"

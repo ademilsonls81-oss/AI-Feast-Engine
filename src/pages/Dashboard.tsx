@@ -130,6 +130,29 @@ export default function Dashboard() {
     }
   };
 
+  // Stripe Portal (Manage Subscription)
+  const handleManageSubscription = async () => {
+    if (!user) return;
+    setStripeLoading(true);
+    try {
+      const headers = await getAuthHeaders();
+      const res = await api.post(
+        '/api/create-portal-session',
+        { userId: user.id },
+        { headers }
+      );
+      if (res.data?.url) {
+        window.location.href = res.data.url;
+      } else {
+        alert('Unable to open billing portal.');
+      }
+    } catch (err: any) {
+      alert(err?.response?.data?.error ?? 'Billing portal unavailable. Only Pro users can manage subscriptions.');
+    } finally {
+      setStripeLoading(false);
+    }
+  };
+
   const stats = [
     { label: 'Requests', value: usageCount, icon: Activity, change: '+12%', color: 'text-primary' },
     { label: 'Active Skills', value: 4, icon: Zap, change: '+2', color: 'text-accent' },
@@ -374,15 +397,29 @@ export default function Dashboard() {
                       className="w-full bg-gradient-to-r from-primary to-accent hover:opacity-90 text-white border-0 mt-2 gap-2"
                     >
                       {stripeLoading ? (
-                        <><Loader2 className="w-4 h-4 animate-spin" /> Connecting to Stripe...</>
+                        <><Loader2 className="w-4 h-4 animate-spin" /> Connecting...</>
                       ) : (
                         <><ExternalLink className="w-4 h-4" /> Upgrade to Pro — $29/mo</>
                       )}
                     </Button>
                   )}
                   {plan !== 'free' && (
-                    <div className="text-xs text-green-400 flex items-center gap-1 pt-2">
-                      <CheckCircle className="w-3 h-3" /> Pro plan active
+                    <div className="space-y-3 pt-2">
+                       <div className="text-xs text-green-400 flex items-center gap-1">
+                        <CheckCircle className="w-3 h-3" /> Pro plan active
+                      </div>
+                      <Button
+                        variant="outline"
+                        onClick={handleManageSubscription}
+                        disabled={stripeLoading}
+                        className="w-full text-xs h-9 gap-2"
+                      >
+                        {stripeLoading ? (
+                          <><Loader2 className="w-3 h-3 animate-spin" /> Redirecting...</>
+                        ) : (
+                          <><RefreshCw className="w-3 h-3" /> Manage Subscription</>
+                        )}
+                      </Button>
                     </div>
                   )}
                 </CardContent>

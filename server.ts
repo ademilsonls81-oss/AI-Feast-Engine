@@ -277,30 +277,62 @@ app.post("/api/chat", apiKeyRateLimit, async (req, res) => {
 });
 
 // ==========================================
-// USER ROTATE KEY
+// USER API KEY MANAGEMENT
 // ==========================================
-app.post("/api/user/rotate-key", async (req, res) => {
-  const authHeader = req.header("Authorization");
-  if (!authHeader) return res.status(401).json({ error: "Unauthorized" });
 
+// Helper to get user from token
+async function getUserFromAuth(req: express.Request) {
+  const authHeader = req.header("Authorization");
+  if (!authHeader) return null;
   const token = authHeader.replace("Bearer ", "");
-  const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-  if (authError || !user) return res.status(401).json({ error: "Unauthorized" });
+  const { data: { user }, error } = await supabase.auth.getUser(token);
+  if (error || !user) return null;
+  return user;
+}
+
+// GET /api/user/api-key
+app.get("/api/user/api-key", async (req, res) => {
+  const user = await getUserFromAuth(req);
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+  const { data, error } = await supabase.from("users").select("api_key").eq("id", user.id).single();
+  if (error || !data) return res.status(404).json({ error: "Profile not found" });
+
+  res.json({ api_key: data.api_key });
+});
+
+// POST /api/user/api-key (Rotate/Generate)
+app.post("/api/user/api-key", async (req, res) => {
+  const user = await getUserFromAuth(req);
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
 
   const newKey = "af_" + crypto.randomBytes(24).toString("hex");
-  const { data: existingUser } = await supabase.from("users").select("id").eq("id", user.id).single();
+  const { error } = await supabase.from("users").update({ api_key: newKey }).eq("id", user.id);
 
-  let updateError;
-  if (existingUser) {
-    const { error } = await supabase.from("users").update({ api_key: newKey }).eq("id", user.id);
-    updateError = error;
-  } else {
-    const { error } = await supabase.from("users").insert({ id: user.id, email: user.email, api_key: newKey, plan: "free", usage_count: 0 });
-    updateError = error;
-  }
+  if (error) return res.status(500).json({ error: "Failed to rotate API key" });
+  res.json({ api_key: newKey });
+});
 
-  if (updateError) return res.status(500).json({ error: "Failed to generate API key: " + updateError.message });
-  console.log(`API key generated for user ${user.email}`);
+// DELETE /api/user/api-key (Revoke)
+app.delete("/api/user/api-key", async (req, res) => {
+  const user = await getUserFromAuth(req);
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+  const { error } = await supabase.from("users").update({ api_key: null }).eq("id", user.id);
+
+  if (error) return res.status(500).json({ error: "Failed to revoke API key" });
+  res.json({ message: "API key revoked successfully" });
+});
+
+// Alias for backwards compatibility
+app.post("/api/user/rotate-key", async (req, res) => {
+  const user = await getUserFromAuth(req);
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+  const newKey = "af_" + crypto.randomBytes(24).toString("hex");
+  const { error } = await supabase.from("users").update({ api_key: newKey }).eq("id", user.id);
+
+  if (error) return res.status(500).json({ error: "Failed to generate API key" });
   res.json({ api_key: newKey });
 });
 

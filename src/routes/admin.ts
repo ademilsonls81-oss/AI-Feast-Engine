@@ -4,6 +4,9 @@ import { checkAdmin } from "../middleware/auth.js";
 import { queueService } from "../services/queueService.js";
 import { logAuditAction } from "../middleware/auditLog.js";
 import rateLimit from "express-rate-limit";
+import { execSync } from "child_process";
+
+// Rate limiter para endpoints admin: 5 req/min por IP
 
 // Rate limiter para endpoints admin: 5 req/min por IP
 const adminRateLimit = rateLimit({
@@ -839,6 +842,87 @@ router.get("/audit-logs", checkAdmin, async (req, res) => {
     });
   } catch (err: any) {
     console.error("[Admin/AuditLogs] Error fetching audit logs:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ==========================================
+// SYSTEM BACKUP & ROLLBACK (GIT WRAPPER)
+// ==========================================
+
+// GET /api/admin/backups - Listar snapshots
+router.get("/backups", checkAdmin, async (_req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from("system_snapshots")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/admin/backups/snapshot - Criar novo ponto de restauração
+router.post("/backups/snapshot", checkAdmin, async (req, res) => {
+  try {
+    const { message } = req.body;
+    const msg = message || `Automatic Snapshot - ${new Date().toISOString()}`;
+
+    // 1. Git Add + Commit
+    execSync('git add .');
+    try {
+        execSync(`git commit -m "${msg}"`);
+    } catch (e: any) {
+        if (e.message.includes("nothing to commit")) {
+            return res.status(400).json({ error: "No changes to backup" });
+        }
+        throw e;
+    }
+    
+    const hash = execSync('git rev-parse --short HEAD').toString().trim();
+
+    // 2. Salvar no Banco
+    const { data, error } = await supabase
+      .from("system_snapshots")
+      .insert({
+        hash,
+        message: msg,
+        type: message ? 'manual' : 'push'
+      })
+      .select()
+      .single();
+
+    if (error) return res.status(500).json({ error: error.message });
+
+    logAuditAction((req as any).user.id, "CREATE_SNAPSHOT", req, { hash, message: msg });
+    res.json({ message: "Snapshot created successfully", snapshot: data });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/admin/backups/restore - Restaurar sistema para um hash
+router.post("/backups/restore", checkAdmin, async (req, res) => {
+  try {
+    const { hash } = req.body;
+    if (!hash) return res.status(400).json({ error: "Hash required" });
+
+    console.log(`>>> [ROLLBACK] Restoring system to: ${hash}`);
+
+    // Git Reset
+    execSync(`git reset --hard ${hash}`);
+    
+    logAuditAction((req as any).user.id, "RESTORE_SYSTEM", req, { hash });
+    
+    // Opcional: Reiniciar o servidor se estiver em modo monitorado (ex: PM2)
+    // process.exit(0);
+
+    res.json({ message: `System restored to ${hash}.` });
+
+  } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });

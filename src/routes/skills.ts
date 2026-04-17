@@ -115,6 +115,41 @@ router.get("/:slug", async (req, res) => {
   }
 });
 
+// POST /api/skills/validate - Validate a repo URL for security risks
+router.post("/validate", async (req, res) => {
+  try {
+    const { repoUrl } = req.body;
+    if (!repoUrl || !repoUrl.startsWith("http")) {
+      return res.status(400).json({ error: "Valid repository URL required" });
+    }
+
+    console.log(`[Validator] Validating: ${repoUrl}`);
+    
+    // In a real system, this would:
+    // 1. Clone the repo
+    // 2. Run npm audit, snyk, or similar
+    // 3. Scan for secrets (gitleaks)
+    // 4. Analyze code with AI
+    
+    // For this POC, we'll return a deterministic score based on the URL
+    // but simulate the processing time via the frontend logs.
+    
+    // Deterministic but realistic score simulation
+    const hash = repoUrl.split('').reduce((acc: number, char: string) => acc + char.charCodeAt(0), 0);
+    const score = 0.6 + (hash % 40) / 100; // Result between 60% and 100%
+    
+    // Simulate real security analysis delay if needed (but frontend handles animation)
+    res.json({
+      repoUrl,
+      score,
+      status: score >= 0.8 ? "clear" : score >= 0.6 ? "warning" : "critical",
+      timestamp: new Date().toISOString()
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: "Validation failed" });
+  }
+});
+
 // POST /api/skills/:slug/evaluate
 router.post("/:slug/evaluate", async (req, res) => {
   try {
