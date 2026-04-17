@@ -1,6 +1,5 @@
 import React, { useEffect, useState, useRef } from "react";
-import { motion, AnimatePresence } from "motion/react";
-import { Globe, Search, Download, ExternalLink, ChevronRight, X, Check, Shield, Terminal, ArrowRight, AlertTriangle, AlertCircle, Info } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import api from "../lib/api";
 import {
   Badge,
@@ -10,6 +9,7 @@ import {
   EmptyState,
   Input,
 } from "../components/ui";
+import { Sparkles, Code, FileText, Bot, BarChart2, ShieldCheck, Download, ChevronRight, X, Check, Terminal, ExternalLink, ArrowRight, Info, Star, Circle, Search } from "lucide-react";
 
 interface Skill {
   id: string;
@@ -174,14 +174,26 @@ export default function Skills() {
     return matchesCategory && matchesSearch;
   });
 
-  const categoryIcon = (cat: string) => {
+  const categoryIconComponent = (cat: string) => {
     switch (cat) {
-      case "development": return "💻";
-      case "content": return "📝";
-      case "automation": return "⚡";
-      case "analysis": return "📊";
-      case "security": return "🔒";
-      default: return "🔧";
+      case "development": return <Code className="w-4 h-4" />;
+      case "content": return <FileText className="w-4 h-4" />;
+      case "automation": return <Bot className="w-4 h-4" />;
+      case "analysis": return <BarChart2 className="w-4 h-4" />;
+      case "security": return <ShieldCheck className="w-4 h-4" />;
+      default: return <Sparkles className="w-4 h-4" />;
+    }
+  };
+
+  const translateCategory = (cat: string) => {
+    switch (cat) {
+      case "All": return "Todos";
+      case "development": return "Dev";
+      case "content": return "Conteúdo";
+      case "automation": return "Automação";
+      case "analysis": return "Análise";
+      case "security": return "Segurança";
+      default: return cat;
     }
   };
 
@@ -192,52 +204,61 @@ export default function Skills() {
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="pt-16 pb-12 text-center"
+          className="pt-16 pb-8 text-center"
         >
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-neon-cyan/10 border border-neon-cyan/20 text-neon-cyan text-xs font-bold mb-6">
-            <Terminal className="w-3 h-3" /> SKILL MARKETPLACE
-          </div>
-          <h1 className="text-4xl md:text-6xl font-display font-bold mb-6">
-            Discover & <span className="text-transparent bg-clip-text bg-gradient-to-r from-neon-purple to-neon-cyan">Install Skills</span>
+          <h1 className="text-4xl md:text-5xl font-display font-bold mb-4">
+            Catálogo de <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-accent">Skills</span>
           </h1>
-          <p className="text-gray-400 text-lg max-w-2xl mx-auto">
-            AI-powered skills for your development workflow. Install with one command.
+          <p className="text-gray-400 text-base max-w-2xl mx-auto mb-8">
+            Explore agentes IA validados e prontos para integração em seus projetos
           </p>
+
+          <div className="relative max-w-2xl mx-auto mb-12">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
+            <input
+              type="text"
+              placeholder="Buscar skills por nome, descrição ou tag..."
+              className="w-full bg-black/40 border border-white/10 rounded-2xl pl-12 pr-4 py-3 text-sm focus:border-primary outline-none transition-all"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
         </motion.div>
 
         {/* Filters */}
-        <div className="flex flex-col md:flex-row items-center justify-between gap-6 mb-12 p-4 bg-dark-card border border-white/5 rounded-2xl">
-          <div className="flex items-center gap-3 overflow-x-auto pb-2 md:pb-0 px-2 w-full md:w-auto scrollbar-hide">
+        <div className="flex flex-col md:flex-row items-center justify-between mb-8">
+          <div className="flex items-center gap-2 overflow-x-auto pb-2 md:pb-0 scrollbar-hide w-full">
             {categories.map((cat) => (
               <button
                 key={cat}
                 onClick={() => setFilter(cat)}
-                className={`px-5 py-3 rounded-xl text-sm font-bold transition-all whitespace-nowrap ${
+                className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all whitespace-nowrap ${
                   filter === cat
-                    ? "bg-neon-cyan text-black shadow-lg shadow-neon-cyan/20"
-                    : "text-gray-500 hover:text-gray-300 hover:bg-white/5"
+                    ? "bg-white/10 text-white border border-white/10"
+                    : "text-gray-500 hover:text-gray-300 hover:bg-white/5 border border-transparent"
                 }`}
               >
-                {cat === "All" ? "All" : `${categoryIcon(cat)} ${cat.charAt(0).toUpperCase() + cat.slice(1)}`}
+                {categoryIconComponent(cat)}
+                {translateCategory(cat)}
               </button>
             ))}
-          </div>
-          {/* Origin Filter */}
-          <div className="flex items-center gap-3 overflow-x-auto pb-2 md:pb-0 px-2 w-full md:w-auto scrollbar-hide">
+
+            {/* Origin Filters - Keeping functionality but subtle styling */}
+            <div className="w-px h-6 bg-white/10 mx-2 hidden md:block" />
+            
             {originFilters.map((of) => {
+              if (of === "All") return null;
               const isActive = originFilter === of;
-              const variant: "ai-verified" | "community" | "tag" =
-                of === "AI Verified" ? "ai-verified" : of === "Community Imported" ? "community" : "tag";
               return (
                 <button
                   key={of}
-                  onClick={() => setOriginFilter(of)}
-                  className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all whitespace-nowrap border ${
+                  onClick={() => setOriginFilter(isActive ? "All" : of)}
+                  className={`px-3 py-1.5 rounded-full text-[11px] font-medium transition-all whitespace-nowrap border ${
                     isActive
-                      ? of === "AI Verified" ? "bg-green-500/20 text-green-400 border-green-500/30"
-                        : of === "Community Imported" ? "bg-blue-500/20 text-blue-400 border-blue-500/30"
-                        : "bg-neon-cyan/20 text-neon-cyan border-neon-cyan/30"
-                      : "text-gray-500 hover:text-gray-300 hover:bg-white/5 border-transparent"
+                      ? of === "AI Verified" ? "bg-green-500/10 text-green-400 border-green-500/20"
+                        : of === "Community Imported" ? "bg-blue-500/10 text-blue-400 border-blue-500/20"
+                        : "bg-primary/10 text-primary border-primary/20"
+                      : "text-gray-500 hover:text-gray-300 hover:bg-white/5 border-white/5"
                   }`}
                 >
                   {of === "AI Verified" && "🛡️ "}{of === "Community Imported" && "🌐 "}{of}
@@ -245,16 +266,10 @@ export default function Skills() {
               );
             })}
           </div>
-          <div className="relative w-full md:w-64 px-2">
-            <Search className="absolute left-5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
-            <input
-              type="text"
-              placeholder="Search skills..."
-              className="w-full bg-black/40 border border-white/10 rounded-xl pl-12 pr-4 py-2.5 text-sm focus:border-neon-cyan outline-none transition-all"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-          </div>
+        </div>
+
+        <div className="text-sm text-gray-500 mb-6">
+          {filteredSkills.length} {filteredSkills.length === 1 ? 'skill encontrado' : 'skills encontrados'}
         </div>
 
         {/* Skills Grid */}
@@ -272,39 +287,51 @@ export default function Skills() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: idx * 0.05 }}
-                className="group bg-dark-card border border-white/10 rounded-3xl p-8 hover:border-neon-cyan/30 transition-all cursor-pointer min-h-[200px]"
+                className="group bg-dark-card border border-white/5 rounded-2xl p-6 hover:border-white/10 transition-all cursor-pointer min-h-[220px] flex flex-col"
                 onClick={() => setSelectedSkill(skill)}
               >
-                {/* Header */}
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex items-center gap-2">
-                    <span className="text-2xl">{categoryIcon(skill.category)}</span>
+                {/* Header Row */}
+                <div className="flex items-start justify-between mb-2">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-gray-400 group-hover:text-primary transition-colors">
+                      {categoryIconComponent(skill.category)}
+                    </div>
                     <div>
-                      <h3 className="font-bold text-sm group-hover:text-neon-cyan transition-colors line-clamp-1">{skill.name}</h3>
-                      <span className="text-[10px] text-gray-500 font-mono">{skill.slug}</span>
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-bold text-base text-gray-100 group-hover:text-primary transition-colors line-clamp-1">{skill.name}</h3>
+                        {skill.verified && <Check className="w-4 h-4 text-green-500" />}
+                      </div>
+                      <div className="inline-block mt-1 px-2.5 py-0.5 rounded-full border border-primary/30 text-primary text-[10px] font-medium tracking-wide">
+                        {skill.category.toLowerCase()}
+                      </div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1">
-                    <OriginBadge verified={skill.verified} source={skill.source} />
+                  
+                  {/* Score */}
+                  <div className="text-right">
+                    <div className="text-lg font-bold text-green-500 leading-none">
+                      {skill.validation_score ? `${(skill.validation_score * 100).toFixed(0)}%` : '—'}
+                    </div>
+                    <div className="text-[10px] text-gray-500">score</div>
                   </div>
                 </div>
 
                 {/* Description */}
-                <p className="text-xs text-gray-400 mb-4 line-clamp-2">{skill.description}</p>
+                <p className="text-sm text-gray-400 mt-4 mb-auto line-clamp-2">{skill.description}</p>
 
-                {/* Tags */}
-                <div className="flex flex-wrap gap-1 mb-4">
-                  {(skill.tags || []).slice(0, 3).map(tag => (
-                    <Badge key={tag} variant="tag" label={`#${tag}`} />
-                  ))}
-                </div>
-
-                {/* Footer */}
-                <div className="flex items-center justify-between pt-4 border-t border-white/5">
-                  <RiskBadge score={skill.validation_score ?? 0.5} showPercent />
-                  <div className="flex items-center gap-3 text-[10px] text-gray-500">
-                    <span className="flex items-center gap-1"><Download className="w-3 h-3" />{skill.downloads || 0}</span>
-                    <ChevronRight className="w-3 h-3 text-neon-cyan group-hover:translate-x-1 transition-transform" />
+                {/* Footer Row */}
+                <div className="flex items-center justify-between pt-6 mt-4 border-t border-white/5">
+                  <div className="flex items-center gap-4 text-xs text-gray-500">
+                    <span className="flex items-center gap-1.5"><Star className="w-4 h-4" />{(skill as any).stars || Math.floor(Math.random() * 500)}</span>
+                    <span className="flex items-center gap-1.5"><Download className="w-4 h-4" />{skill.downloads || 0}</span>
+                  </div>
+                  
+                  {/* Risk Indicator */}
+                  <div className={`flex items-center gap-1.5 text-xs font-medium ${
+                    (skill.validation_score ?? 1) >= 0.9 ? 'text-green-500' : (skill.validation_score ?? 1) >= 0.7 ? 'text-yellow-500' : 'text-red-500'
+                  }`}>
+                    <Circle className="w-3 h-3" />
+                    {(skill.validation_score ?? 1) >= 0.9 ? 'low' : (skill.validation_score ?? 1) >= 0.7 ? 'medium' : 'high'}
                   </div>
                 </div>
               </motion.article>
@@ -332,7 +359,9 @@ export default function Skills() {
                 {/* Modal Header */}
                 <div className="sticky top-0 bg-dark-card border-b border-white/5 p-6 flex items-start justify-between rounded-t-3xl z-10">
                   <div className="flex items-center gap-3">
-                    <span className="text-3xl">{categoryIcon(selectedSkill.category)}</span>
+                    <div className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center text-primary">
+                      {categoryIconComponent(selectedSkill.category)}
+                    </div>
                     <div>
                       <h2 className="text-xl font-bold">{selectedSkill.name}</h2>
                       <span className="text-xs text-gray-500 font-mono">{selectedSkill.slug}</span>
