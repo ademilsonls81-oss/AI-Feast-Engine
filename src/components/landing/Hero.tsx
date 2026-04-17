@@ -6,24 +6,26 @@ import { motion } from 'framer-motion';
 
 export default function Hero() {
   return (
-    <section className="relative overflow-hidden">
+    <section className="relative overflow-hidden z-0">
       {/* Blobs animados — roxo esquerda, ciano direita */}
-      <div className="absolute inset-0 -z-10">
+      <div className="absolute inset-0 pointer-events-none z-0">
         <div
-          className="absolute top-1/4 left-1/4 w-96 h-96 rounded-full blur-3xl animate-pulse-glow"
-          style={{ background: 'hsl(262 83% 65% / 0.2)' }}
+          className="absolute top-1/4 left-1/4 w-[500px] h-[500px] rounded-full blur-[100px] animate-pulse-glow"
+          style={{ background: 'rgba(168, 85, 247, 0.15)' }}
         />
         <div
-          className="absolute bottom-1/4 right-1/4 w-96 h-96 rounded-full blur-3xl animate-pulse-glow"
-          style={{ background: 'hsl(199 89% 55% / 0.2)', animationDelay: '1s' }}
+          className="absolute bottom-1/4 right-1/4 w-[500px] h-[500px] rounded-full blur-[100px] animate-pulse-glow"
+          style={{ background: 'rgba(6, 182, 212, 0.15)', animationDelay: '1s' }}
         />
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_0%,hsl(222_47%_5%)_70%)]" />
+        {/* Radial gradient mask */}
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_20%,#0a0a0a_80%)]" />
       </div>
 
       {/* Grid quadriculado */}
-      <div className="absolute inset-0 -z-10 grid-pattern" />
+      <div className="absolute inset-0 grid-pattern pointer-events-none z-0 opacity-20" />
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24 lg:py-32">
+      {/* Content wrapper */}
+      <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24 lg:py-32">
         <div className="text-center max-w-4xl mx-auto">
           {/* Badge */}
           <motion.div
