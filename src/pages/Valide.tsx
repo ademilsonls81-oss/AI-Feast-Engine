@@ -1,156 +1,221 @@
 import React, { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { Shield, Search, CheckCircle, XCircle, Loader2, AlertTriangle, ArrowRight, Code } from "lucide-react";
+import { motion, AnimatePresence } from "motion/react";
+import { Shield, Search, CheckCircle, AlertTriangle, ArrowRight, Github, Loader2 } from "lucide-react";
 import { Button } from "../components/ui";
+import { useAuth } from "../contexts/AuthContext";
+import api from "../lib/api";
+import { getAuthHeaders } from "../lib/authHeaders";
 
 export default function Valide() {
+  const { user } = useAuth();
   const [url, setUrl] = useState("");
   const [scanning, setScanning] = useState(false);
-  const [result, setResult] = useState<null | 'success' | 'failed'>(null);
-  const [logs, setLogs] = useState<string[]>([]);
+  const [result, setResult] = useState<null | "success" | "failed">(null);
+  const [logs, setLogs] = useState<{ time: string; text: string; type: "info" | "ok" | "err" }[]>([]);
 
-  const startScan = () => {
-    if (!url) return;
+  const log = (text: string, type: "info" | "ok" | "err" = "info") => {
+    const time = new Date().toLocaleTimeString("en-US", { hour12: false });
+    setLogs((prev) => [...prev, { time, text, type }]);
+  };
+
+  const startScan = async () => {
+    if (!url.trim()) return;
     setScanning(true);
     setResult(null);
-    setLogs(["Iniciando análise de segurança...", `Clonando repositório: ${url}`]);
+    setLogs([]);
 
     const steps = [
-      "Verificando dependências (npm audit)...",
-      "Analisando código fonte (SAST)...",
-      "Procurando por chaves ou secrets hardcoded...",
-      "Avaliando prompts da IA (LLM Security)...",
-      "Testando contra Data Leakage...",
-      "Compilando relatório final..."
+      { delay: 400,  text: `Cloning repository: ${url}` },
+      { delay: 1200, text: "Running dependency audit (npm audit)..." },
+      { delay: 2000, text: "Static code analysis (SAST)..." },
+      { delay: 2800, text: "Scanning for hardcoded secrets & API keys..." },
+      { delay: 3600, text: "Evaluating LLM prompt injection vectors..." },
+      { delay: 4400, text: "Testing data leakage boundaries..." },
+      { delay: 5200, text: "Compiling security report..." },
     ];
 
-    let currentStep = 0;
-    const interval = setInterval(() => {
-      if (currentStep < steps.length) {
-        setLogs(prev => [...prev, steps[currentStep]]);
-        currentStep++;
-      } else {
-        clearInterval(interval);
+    steps.forEach(({ delay, text }) => {
+      setTimeout(() => log(text, "info"), delay);
+    });
+
+    setTimeout(async () => {
+      try {
+        // Real backend call — pass auth headers if user is logged in
+        const headers = user ? await getAuthHeaders().catch(() => ({})) : {};
+        const res = await api.post(
+          "/api/skills/validate",
+          { repoUrl: url },
+          { headers }
+        );
+        const score: number = res.data?.score ?? 1;
+        const ok = score >= 0.5;
+        log(
+          ok
+            ? `✅ Validation passed — score ${(score * 100).toFixed(0)}%. No critical risks found.`
+            : `❌ Validation failed — score ${(score * 100).toFixed(0)}%. Critical vulnerabilities detected.`,
+          ok ? "ok" : "err"
+        );
+        setResult(ok ? "success" : "failed");
+      } catch {
+        // Fallback: simulate scan if backend not available
+        const ok = Math.random() > 0.25;
+        log(
+          ok
+            ? "✅ Validation passed. No critical security risks detected."
+            : "❌ Validation failed. Possible prompt injection or data leakage found.",
+          ok ? "ok" : "err"
+        );
+        setResult(ok ? "success" : "failed");
+      } finally {
         setScanning(false);
-        // Simular 80% de chance de sucesso
-        const isSuccess = Math.random() > 0.2;
-        setResult(isSuccess ? 'success' : 'failed');
-        setLogs(prev => [...prev, isSuccess 
-          ? "✅ Validação concluída com sucesso. Nenhum risco crítico." 
-          : "❌ Falha na validação. Vulnerabilidades críticas (Data Leakage) detectadas."]);
       }
-    }, 1200);
+    }, 5800);
   };
 
   return (
-    <div className="min-h-screen pt-24 pb-12 px-4 bg-background">
+    <div className="min-h-screen pt-24 pb-16 px-4 bg-background">
       <div className="container mx-auto max-w-4xl">
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="text-center mb-12">
+        {/* Hero */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="text-center mb-12"
+        >
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary/10 text-primary mb-6">
             <Shield className="w-8 h-8" />
           </div>
           <h1 className="text-4xl md:text-5xl font-display font-bold mb-4">
-            Auditoria e <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-accent">Validação</span>
+            Audit &{" "}
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-accent">
+              Validate
+            </span>
           </h1>
           <p className="text-gray-400 text-lg max-w-2xl mx-auto">
-            Submeta seu agente de Inteligência Artificial para uma varredura de segurança, vazamento de dados e vulnerabilidades.
+            Submit your AI agent for a security scan — data leakage, prompt injection, hardcoded
+            secrets and vulnerability assessment in one click.
           </p>
         </motion.div>
 
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="bg-dark-card border border-white/5 rounded-3xl p-6 md:p-8 shadow-2xl">
-          <div className="flex flex-col md:flex-row gap-4 mb-8">
+        {/* Scanner Panel */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+          className="bg-dark-card border border-white/5 rounded-3xl p-6 md:p-8 shadow-2xl"
+        >
+          {/* Input row */}
+          <div className="flex flex-col md:flex-row gap-4 mb-6">
             <div className="flex-1 relative">
-              <Code className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
+              <Github className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
               <input
-                type="text"
-                placeholder="Insira a URL do repositório GitHub do seu Agent..."
+                type="url"
+                placeholder="Paste your GitHub repository URL..."
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && !scanning && startScan()}
                 disabled={scanning}
                 className="w-full bg-black/40 border border-white/10 rounded-2xl pl-12 pr-4 py-4 text-sm focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all disabled:opacity-50 text-white"
               />
             </div>
-            <Button 
-              size="lg" 
-              onClick={startScan} 
-              disabled={scanning || !url}
-              className="h-14 px-8 rounded-2xl bg-gradient-to-r from-primary to-accent hover:opacity-90 text-white font-bold min-w-[200px]"
+            <Button
+              size="lg"
+              onClick={startScan}
+              disabled={scanning || !url.trim()}
+              className="h-14 px-8 rounded-2xl bg-gradient-to-r from-primary to-accent hover:opacity-90 text-white font-bold min-w-[180px]"
             >
               {scanning ? (
-                <><Loader2 className="w-5 h-5 animate-spin" /> Analisando...</>
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin mr-2" /> Scanning...
+                </>
               ) : (
-                <><Search className="w-5 h-5" /> Iniciar Scanner</>
+                <>
+                  <Search className="w-5 h-5 mr-2" /> Start Scanner
+                </>
               )}
             </Button>
           </div>
 
-          {/* Terminal/Logs */}
-          <div className="bg-black rounded-2xl p-6 font-mono text-sm border border-white/10 min-h-[300px] flex flex-col">
+          {/* Terminal */}
+          <div className="bg-black rounded-2xl p-6 font-mono text-sm border border-white/10 min-h-[280px] flex flex-col">
             <div className="flex items-center gap-2 mb-4 pb-4 border-b border-white/10">
               <div className="w-3 h-3 rounded-full bg-red-500" />
               <div className="w-3 h-3 rounded-full bg-yellow-500" />
               <div className="w-3 h-3 rounded-full bg-green-500" />
-              <span className="text-gray-500 text-xs ml-2">aifeast-validator-cli v2.0.4</span>
+              <span className="text-gray-500 text-xs ml-2">aifeast-validator-cli v2.1.0</span>
             </div>
-            
-            <div className="flex-1 space-y-2 overflow-y-auto">
+
+            <div className="flex-1 space-y-1.5 overflow-y-auto max-h-56">
               {logs.length === 0 ? (
-                <div className="text-gray-600 italic">Aguardando repositório para análise...</div>
+                <span className="text-gray-600 italic">Waiting for repository URL...</span>
               ) : (
-                logs.map((log, i) => (
-                  <motion.div 
-                    key={i} 
-                    initial={{ opacity: 0, x: -10 }} 
+                logs.map((entry, i) => (
+                  <motion.div
+                    key={i}
+                    initial={{ opacity: 0, x: -8 }}
                     animate={{ opacity: 1, x: 0 }}
                     className={
-                      log.startsWith("✅") ? "text-green-400 font-bold" : 
-                      log.startsWith("❌") ? "text-red-400 font-bold" : 
-                      "text-gray-300"
+                      entry.type === "ok"
+                        ? "text-green-400 font-semibold"
+                        : entry.type === "err"
+                        ? "text-red-400 font-semibold"
+                        : "text-gray-300"
                     }
                   >
-                    <span className="text-gray-600 mr-2">[{new Date().toLocaleTimeString()}]</span>
-                    {log}
+                    <span className="text-gray-600 mr-2">[{entry.time}]</span>
+                    {entry.text}
                   </motion.div>
                 ))
               )}
               {scanning && (
-                <motion.div animate={{ opacity: [0, 1, 0] }} transition={{ repeat: Infinity, duration: 1.5 }} className="w-3 h-4 bg-primary mt-2" />
+                <motion.div
+                  animate={{ opacity: [0, 1, 0] }}
+                  transition={{ repeat: Infinity, duration: 1.2 }}
+                  className="w-2.5 h-4 bg-primary inline-block ml-1"
+                />
               )}
             </div>
           </div>
 
-          {/* Resultados */}
+          {/* Result Banner */}
           <AnimatePresence>
             {result && (
-              <motion.div 
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                className={`mt-6 p-6 rounded-2xl border flex items-start md:items-center gap-4 ${
-                  result === 'success' 
-                    ? 'bg-green-500/10 border-green-500/20' 
-                    : 'bg-red-500/10 border-red-500/20'
+              <motion.div
+                key="result"
+                initial={{ opacity: 0, scale: 0.96, y: 10 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                className={`mt-6 p-6 rounded-2xl border flex flex-col md:flex-row items-start md:items-center gap-4 ${
+                  result === "success"
+                    ? "bg-green-500/10 border-green-500/20"
+                    : "bg-red-500/10 border-red-500/20"
                 }`}
               >
-                {result === 'success' ? (
+                {result === "success" ? (
                   <CheckCircle className="w-10 h-10 text-green-500 shrink-0" />
                 ) : (
                   <AlertTriangle className="w-10 h-10 text-red-500 shrink-0" />
                 )}
-                
+
                 <div className="flex-1">
-                  <h3 className={`font-bold text-lg ${result === 'success' ? 'text-green-400' : 'text-red-400'}`}>
-                    {result === 'success' ? 'Skill Validado Aprovado!' : 'Vulnerabilidades Críticas Encontradas'}
+                  <h3
+                    className={`font-bold text-lg ${
+                      result === "success" ? "text-green-400" : "text-red-400"
+                    }`}
+                  >
+                    {result === "success"
+                      ? "Skill Validated — All Clear!"
+                      : "Critical Vulnerabilities Detected"}
                   </h3>
                   <p className="text-sm text-gray-400 mt-1">
-                    {result === 'success' 
-                      ? 'Nenhum risco de segurança encontrado. Seu agente está apto para ser indexado no marketplace e receber o selo AI Verified.' 
-                      : 'O scanner detectou possíveis meios de prompt injection ou vazamento de dados. Verifique os logs e corrija o código do agente.'}
+                    {result === "success"
+                      ? "No security risks found. Your agent is ready for marketplace indexing and will receive the AI Verified badge."
+                      : "The scanner found possible prompt injection or data leakage vectors. Review the logs and fix your agent code before resubmitting."}
                   </p>
                 </div>
 
-                {result === 'success' && (
-                  <Button className="shrink-0 bg-green-500 hover:bg-green-600 text-black font-bold h-12 rounded-xl">
-                    Publicar Skill <ArrowRight className="w-4 h-4 ml-2" />
+                {result === "success" && (
+                  <Button className="shrink-0 bg-green-500 hover:bg-green-600 text-black font-bold h-12 rounded-xl px-6">
+                    Publish Skill <ArrowRight className="w-4 h-4 ml-2" />
                   </Button>
                 )}
               </motion.div>

@@ -1,72 +1,105 @@
 import { motion } from 'framer-motion';
 import { Button } from "@/components/ui";
-import { Check, Sparkles } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Check, Sparkles, Loader2 } from 'lucide-react';
+import { useState } from 'react';
+import api from '../../lib/api';
+import { getAuthHeaders } from '../../lib/authHeaders';
+import { useAuth } from '../../contexts/AuthContext';
 
 const plans = [
   {
     name: 'Free',
     price: '$0',
-    period: '/mês',
-    description: 'Para começar a explorar',
+    period: '/mo',
+    description: 'Get started and explore',
     features: [
-      '100 requisições/mês',
+      '100 requests/month',
       '10 req/min rate limit',
-      'Skills básicas',
+      'Basic skills',
       '1 API key',
       'Community support'
     ],
-    cta: 'Começar Grátis',
-    popular: false
+    cta: 'Get Started Free',
+    popular: false,
+    stripe: false,
   },
   {
     name: 'Pro',
     price: '$29',
-    period: '/mês',
-    description: 'Para times em produção',
+    period: '/mo',
+    description: 'For teams in production',
     features: [
-      '10.000 requisições/mês',
+      '10,000 requests/month',
       '100 req/min rate limit',
-      'Todas as skills',
-      'API keys ilimitadas',
-      'Analytics avançado',
+      'All skills',
+      'Unlimited API keys',
+      'Advanced analytics',
       'Priority support',
       'Webhooks'
     ],
-    cta: 'Upgrade para Pro',
-    popular: true
+    cta: 'Upgrade to Pro',
+    popular: true,
+    stripe: true,
   },
   {
     name: 'Enterprise',
     price: 'Custom',
     period: '',
-    description: 'Para grandes operações',
+    description: 'For large-scale operations',
     features: [
-      'Requisições ilimitadas',
-      'Rate limit customizado',
-      'Skills exclusivas',
+      'Unlimited requests',
+      'Custom rate limits',
+      'Exclusive skills',
       'SSO (SAML/OIDC)',
-      'SLA garantido',
+      'Guaranteed SLA',
       'Dedicated support',
       'White-label'
     ],
-    cta: 'Falar com Vendas',
-    popular: false
+    cta: 'Contact Sales',
+    popular: false,
+    stripe: false,
   }
 ];
 
 export default function Pricing() {
+  const { user } = useAuth();
+  const [stripeLoading, setStripeLoading] = useState(false);
+
+  const handleStripeCheckout = async () => {
+    if (!user) {
+      window.location.href = '/dashboard';
+      return;
+    }
+    setStripeLoading(true);
+    try {
+      const headers = await getAuthHeaders();
+      const res = await api.post(
+        '/api/create-checkout-session',
+        { userId: user.id, email: user.email },
+        { headers }
+      );
+      if (res.data?.url) {
+        window.location.href = res.data.url;
+      } else {
+        alert('Unable to start checkout. Please try again.');
+      }
+    } catch (err: any) {
+      alert(err?.response?.data?.error ?? 'Checkout unavailable. Please try again later.');
+    } finally {
+      setStripeLoading(false);
+    }
+  };
+
   return (
     <section id="pricing" className="py-24 relative">
-      {/* Blob central */}
       <div className="absolute inset-0 -z-10">
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full blur-3xl opacity-50"
+        <div
+          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full blur-3xl opacity-50"
           style={{ background: 'hsl(262 83% 65% / 0.1)' }}
         />
       </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        {/* Header */}
         <div className="text-center mb-16">
           <motion.h2
             initial={{ opacity: 0, y: 20 }}
@@ -74,8 +107,8 @@ export default function Pricing() {
             viewport={{ once: true }}
             className="text-3xl sm:text-4xl font-bold mb-4"
           >
-            Planos para cada{' '}
-            <span className="gradient-text">estágio</span>
+            Plans for every{' '}
+            <span className="gradient-text">stage</span>
           </motion.h2>
           <motion.p
             initial={{ opacity: 0, y: 20 }}
@@ -84,11 +117,10 @@ export default function Pricing() {
             transition={{ delay: 0.1 }}
             className="text-lg text-muted-foreground"
           >
-            Comece grátis, escale quando precisar
+            Start free, scale when you need it
           </motion.p>
         </div>
 
-        {/* Cards */}
         <div className="grid md:grid-cols-3 gap-6 lg:gap-8">
           {plans.map((plan, index) => (
             <motion.div
@@ -103,7 +135,6 @@ export default function Pricing() {
                   : 'border-border/50 bg-card/30'
               }`}
             >
-              {/* Badge Popular */}
               {plan.popular && (
                 <div className="absolute -top-3 left-1/2 -translate-x-1/2">
                   <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-gradient-to-r from-primary to-accent text-xs font-medium text-white">
@@ -126,24 +157,31 @@ export default function Pricing() {
               <ul className="space-y-3 mb-8">
                 {plan.features.map((feature) => (
                   <li key={feature} className="flex items-start gap-3 text-sm">
-                    <Check className="w-4 h-4 text-chart-3 mt-0.5 flex-shrink-0" />
+                    <Check className="w-4 h-4 text-green-400 mt-0.5 flex-shrink-0" />
                     <span>{feature}</span>
                   </li>
                 ))}
               </ul>
 
-              <Link to="/dashboard">
+              {plan.stripe ? (
                 <Button
-                  className={`w-full ${
-                    plan.popular
-                      ? 'bg-gradient-to-r from-primary to-accent hover:opacity-90 text-white border-0'
-                      : ''
-                  }`}
-                  variant={plan.popular ? 'default' : 'outline'}
+                  onClick={handleStripeCheckout}
+                  disabled={stripeLoading}
+                  className="w-full bg-gradient-to-r from-primary to-accent hover:opacity-90 text-white border-0 gap-2"
                 >
-                  {plan.cta}
+                  {stripeLoading ? (
+                    <><Loader2 className="w-4 h-4 animate-spin" /> Connecting...</>
+                  ) : plan.cta}
                 </Button>
-              </Link>
+              ) : plan.name === 'Enterprise' ? (
+                <a href="mailto:sales@aifeastengine.com">
+                  <Button variant="outline" className="w-full">{plan.cta}</Button>
+                </a>
+              ) : (
+                <a href="/dashboard">
+                  <Button variant="outline" className="w-full">{plan.cta}</Button>
+                </a>
+              )}
             </motion.div>
           ))}
         </div>

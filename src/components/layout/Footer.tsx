@@ -18,23 +18,23 @@ export default function Footer() {
               </span>
             </Link>
             <p className="text-sm text-muted-foreground leading-relaxed max-w-xs">
-              Marketplace de agentes IA validados e prontos para uso.
+              Marketplace of validated AI agents ready to use.
             </p>
           </div>
 
           {/* Produto */}
           <div>
-            <h4 className="text-sm font-semibold mb-4 text-white">Produto</h4>
+            <h4 className="text-sm font-semibold mb-4 text-white">Product</h4>
             <ul className="space-y-3">
               <li><Link to="/skills" className="text-sm text-muted-foreground hover:text-white transition-colors">Skills</Link></li>
-              <li><Link to="/docs" className="text-sm text-muted-foreground hover:text-white transition-colors">Documentação</Link></li>
-              <li><Link to="/dashboard" className="text-sm text-muted-foreground hover:text-white transition-colors">Preços</Link></li>
+              <li><Link to="/docs" className="text-sm text-muted-foreground hover:text-white transition-colors">Documentation</Link></li>
+              <li><Link to="/#pricing" className="text-sm text-muted-foreground hover:text-white transition-colors">Pricing</Link></li>
             </ul>
           </div>
 
           {/* Recursos */}
           <div>
-            <h4 className="text-sm font-semibold mb-4 text-white">Recursos</h4>
+            <h4 className="text-sm font-semibold mb-4 text-white">Resources</h4>
             <ul className="space-y-3">
               <li><Link to="/status" className="text-sm text-muted-foreground hover:text-white transition-colors">Status</Link></li>
               <li><a href="#" className="text-sm text-muted-foreground hover:text-white transition-colors">Blog</a></li>
@@ -46,8 +46,8 @@ export default function Footer() {
           <div>
             <h4 className="text-sm font-semibold mb-4 text-white">Legal</h4>
             <ul className="space-y-3">
-              <li><Link to="/privacy" className="text-sm text-muted-foreground hover:text-white transition-colors">Privacidade</Link></li>
-              <li><Link to="/terms" className="text-sm text-muted-foreground hover:text-white transition-colors">Termos</Link></li>
+              <li><Link to="/privacy" className="text-sm text-muted-foreground hover:text-white transition-colors">Privacy</Link></li>
+              <li><Link to="/terms" className="text-sm text-muted-foreground hover:text-white transition-colors">Terms</Link></li>
             </ul>
           </div>
         </div>
@@ -55,7 +55,7 @@ export default function Footer() {
         {/* Bottom bar */}
         <div className="mt-12 pt-6 border-t border-border/50 flex flex-col sm:flex-row items-center justify-between gap-4">
           <p className="text-sm text-muted-foreground">
-            © 2026 AI Feast Engine. Todos os direitos reservados.
+            © 2026 AI Feast Engine. All rights reserved.
           </p>
           <div className="flex items-center gap-4">
             <a href="https://github.com" target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-foreground transition-colors">

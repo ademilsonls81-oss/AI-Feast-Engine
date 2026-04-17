@@ -1,11 +1,11 @@
-import { motion } from 'framer-motion';
+import { motion } from 'motion/react';
 import { Shield, Zap, RefreshCw, GitBranch, Search, BarChart3 } from 'lucide-react';
 
 const features = [
   {
     icon: Shield,
-    title: 'Validação por IA',
-    description: 'Cada skill passa por análise automática de segurança e qualidade antes de ser listada.',
+    title: 'AI Validation',
+    description: 'Every skill undergoes automated security and quality analysis before being listed in the marketplace.',
     hoverBg: 'from-emerald-500/20 to-emerald-500/5',
     iconBg: 'bg-emerald-500/15',
     iconColor: 'text-emerald-400'
@@ -13,39 +13,39 @@ const features = [
   {
     icon: GitBranch,
     title: 'GitHub Discovery',
-    description: 'Importação automática de repositórios públicos com extração inteligente de metadados.',
+    description: 'Automatic import of public repositories with intelligent metadata extraction and schema inference.',
     hoverBg: 'from-violet-500/20 to-violet-500/5',
     iconBg: 'bg-violet-500/15',
     iconColor: 'text-violet-400'
   },
   {
     icon: RefreshCw,
-    title: 'Sistema Auto-Curativo',
-    description: 'Pipeline de 11 fases que monitora, detecta e corrige erros automaticamente em produção.',
+    title: 'Self-Healing Pipeline',
+    description: '11-phase pipeline that monitors, detects and auto-corrects errors in production environments.',
     hoverBg: 'from-sky-500/20 to-sky-500/5',
     iconBg: 'bg-sky-500/15',
     iconColor: 'text-sky-400'
   },
   {
     icon: Search,
-    title: 'Busca Inteligente',
-    description: 'Encontre skills por categoria, tags, nível de risco ou pontuação de validação.',
+    title: 'Smart Search',
+    description: 'Find skills by category, tags, risk level or validation score with full-text search.',
     hoverBg: 'from-orange-500/20 to-orange-500/5',
     iconBg: 'bg-orange-500/15',
     iconColor: 'text-orange-400'
   },
   {
     icon: Zap,
-    title: 'Integração Simples',
-    description: 'Um comando para instalar. Schema de entrada/saída padronizado para todas as skills.',
+    title: 'One-Command Integration',
+    description: 'Install any skill with a single command. Standardized input/output schema across all agents.',
     hoverBg: 'from-purple-500/20 to-purple-500/5',
     iconBg: 'bg-purple-500/15',
     iconColor: 'text-purple-400'
   },
   {
     icon: BarChart3,
-    title: 'Analytics em Tempo Real',
-    description: 'Monitore uso, performance e custos com dashboards detalhados e alertas.',
+    title: 'Real-Time Analytics',
+    description: 'Monitor usage, performance and costs with detailed dashboards and instant alerts.',
     hoverBg: 'from-cyan-500/20 to-cyan-500/5',
     iconBg: 'bg-cyan-500/15',
     iconColor: 'text-cyan-400'
@@ -74,8 +74,8 @@ export default function Features() {
             viewport={{ once: true }}
             className="text-3xl sm:text-4xl font-bold mb-4"
           >
-            Tudo que você precisa para{' '}
-            <span className="gradient-text">escalar com IA</span>
+            Everything you need to{' '}
+            <span className="gradient-text">scale with AI</span>
           </motion.h2>
           <motion.p
             initial={{ opacity: 0, y: 20 }}
@@ -84,7 +84,7 @@ export default function Features() {
             transition={{ delay: 0.1 }}
             className="text-lg text-muted-foreground max-w-2xl mx-auto"
           >
-            Infraestrutura completa para descobrir, validar e executar agentes IA em produção
+            Full infrastructure to discover, validate and run AI agents in production
           </motion.p>
         </div>
 

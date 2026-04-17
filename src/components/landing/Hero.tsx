@@ -2,7 +2,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { Button } from "@/components/ui";
 import { ArrowRight, Sparkles, Shield, Zap, Play } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion } from 'motion/react';
 
 export default function Hero() {
   return (
@@ -35,7 +35,7 @@ export default function Hero() {
             className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-primary/10 border border-primary/20 mb-8"
           >
             <Sparkles className="w-4 h-4 text-primary" />
-            <span className="text-sm font-medium text-primary">Marketplace de Skills IA</span>
+            <span className="text-sm font-medium text-primary">AI Skills Marketplace</span>
           </motion.div>
 
           {/* Headline */}
@@ -45,8 +45,8 @@ export default function Hero() {
             transition={{ duration: 0.5, delay: 0.1 }}
             className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight mb-6"
           >
-            Agentes IA <span className="gradient-text text-primary">validados</span>
-            <br />prontos para integrar
+            Validated AI Agents{' '}
+            <span className="gradient-text text-primary">ready to deploy</span>
           </motion.h1>
 
           {/* Subheadline */}
@@ -56,8 +56,8 @@ export default function Hero() {
             transition={{ duration: 0.5, delay: 0.2 }}
             className="text-lg sm:text-xl text-muted-foreground max-w-2xl mx-auto mb-10"
           >
-            Descubra, valide e integre skills de IA em minutos.
-            <br />Pipeline automatizado de importação com verificação de segurança por IA.
+            Discover, validate and integrate AI skills in minutes.
+            <br />Automated import pipeline with AI-powered security verification.
           </motion.p>
 
           {/* CTAs — botão preenchido com gradiente roxo→ciano */}
@@ -72,14 +72,14 @@ export default function Hero() {
                 size="lg"
                 className="bg-gradient-to-r from-primary to-accent hover:opacity-90 text-white border-0 gap-2 h-12 px-6 text-base"
               >
-                Explorar Skills
+                Explore Skills
                 <ArrowRight className="w-4 h-4" />
               </Button>
             </Link>
             <Link to="/docs">
               <Button variant="outline" size="lg" className="gap-2 h-12 px-6 text-base">
                 <Play className="w-4 h-4" />
-                Ver Documentação
+                View Documentation
               </Button>
             </Link>
           </motion.div>
@@ -93,7 +93,7 @@ export default function Hero() {
           >
             <div className="flex items-center gap-2">
               <Shield className="w-5 h-5 text-chart-3" />
-              <span className="text-sm">Validado por IA</span>
+              <span className="text-sm">AI Verified</span>
             </div>
             <div className="flex items-center gap-2">
               <Zap className="w-5 h-5 text-chart-4" />
@@ -101,7 +101,7 @@ export default function Hero() {
             </div>
             <div className="flex items-center gap-2">
               <Sparkles className="w-5 h-5 text-primary" />
-              <span className="text-sm">Auto-curativo</span>
+              <span className="text-sm">Self-Healing Pipeline</span>
             </div>
           </motion.div>
         </div>
@@ -129,19 +129,19 @@ export default function Hero() {
               <div className="flex items-center gap-2">
                 <span className="text-chart-3">$</span>
                 <span className="text-muted-foreground">npx aifeast install</span>
-                <span className="text-primary font-bold">onde-revisar</span>
+                <span className="text-primary font-bold">code-reviewer</span>
               </div>
               <div className="text-muted-foreground/70 mt-2">
-                <span className="text-chart-3">✓</span> Verificando segurança...
+                <span className="text-chart-3">✓</span> Security check passed
               </div>
               <div className="text-muted-foreground/70">
-                <span className="text-chart-3">✓</span> Validando schema...
+                <span className="text-chart-3">✓</span> Schema validated
               </div>
               <div className="text-muted-foreground/70">
-                <span className="text-chart-3">✓</span> Instalando skill...
+                <span className="text-chart-3">✓</span> Installing skill...
               </div>
               <div className="mt-2 text-chart-3 font-semibold">
-                ✨ Skill instalada com sucesso!
+                ✨ Skill installed successfully!
               </div>
             </div>
           </div>
