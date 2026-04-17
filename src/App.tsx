@@ -13,6 +13,8 @@ import Skills from "./pages/Skills";
 import Privacy from "./pages/Privacy";
 import Terms from "./pages/Terms";
 import Status from "./pages/Status";
+import Valide from "./pages/Valide";
+import Backups from "./pages/admin/Backups";
 import ErrorBoundary from "./components/ErrorBoundary";
 
 export default function App() {
@@ -44,6 +46,12 @@ export default function App() {
             } />
             <Route path="/admin/auto-fixes" element={
               <ErrorBoundary context="AutoFixes"><AutoFixes /></ErrorBoundary>
+            } />
+            <Route path="/admin/backups" element={
+              <ErrorBoundary context="Backups"><Backups /></ErrorBoundary>
+            } />
+            <Route path="/valide" element={
+              <ErrorBoundary context="Valide"><Valide /></ErrorBoundary>
             } />
             <Route path="/docs" element={<Docs />} />
             <Route path="/privacy" element={<Privacy />} />

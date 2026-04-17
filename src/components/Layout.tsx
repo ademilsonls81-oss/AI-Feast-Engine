@@ -3,7 +3,7 @@ import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { signInWithGoogle } from "../lib/supabaseClient";
 import { motion } from "motion/react";
-import { LayoutDashboard, BookOpen, Shield, LogOut, Globe, Zap, User, Puzzle, Activity, AlertTriangle, Wrench } from "lucide-react";
+import { LayoutDashboard, Shield, LogOut, Zap, User, Puzzle, Activity, AlertTriangle, Wrench, Database } from "lucide-react";
 import { Button } from "./ui";
 import Footer from "./layout/Footer";
 
@@ -53,11 +53,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               <div className="w-8 h-8 rounded-full bg-white/5 animate-pulse" />
             ) : user ? (
               <div className="flex items-center gap-4">
-                <Link 
+                <Link
                   to="/dashboard"
                   className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold transition-all ${
-                    isActive("/dashboard") 
-                      ? "bg-neon-purple text-white shadow-lg shadow-neon-purple/20" 
+                    isActive("/dashboard")
+                      ? "bg-neon-purple text-white shadow-lg shadow-neon-purple/20"
                       : "bg-white/5 text-gray-400 hover:bg-white/10"
                   }`}
                 >
@@ -65,7 +65,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                   Dashboard
                 </Link>
 
-                {profile?.role === 'admin' && (
+                {profile?.role === "admin" && (
                   <div className="hidden lg:flex items-center gap-1 px-3 py-2 bg-dark-card/50 border border-white/5 rounded-xl">
                     <Link
                       to="/admin/system"
@@ -94,6 +94,15 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                       <Wrench className="w-3.5 h-3.5" />
                       Fixes
                     </Link>
+                    <Link
+                      to="/admin/backups"
+                      className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold transition-all ${
+                        isActive("/admin/backups") ? "text-neon-cyan bg-neon-cyan/10" : "text-gray-400 hover:text-white hover:bg-white/5"
+                      }`}
+                    >
+                      <Database className="w-3.5 h-3.5" />
+                      Backups
+                    </Link>
                     <div className="w-px h-4 bg-white/10 mx-1" />
                     <Link
                       to="/admin"
@@ -117,7 +126,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                       <User className="w-4 h-4 text-neon-purple" />
                     )}
                   </div>
-                  <button 
+                  <button
                     onClick={signOut}
                     className="p-2 text-gray-500 hover:text-red-400 transition-colors"
                     title="Sign Out"
