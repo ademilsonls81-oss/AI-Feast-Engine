@@ -16,7 +16,7 @@ const plans = [
       '1 API key',
       'Community support'
     ],
-    cta: 'Conseguir Grátis',
+    cta: 'Começar Grátis',
     popular: false
   },
   {
