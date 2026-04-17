@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useLocation } from "react-router-dom";
 import api from "../lib/api";
 import {
   Badge,
@@ -45,15 +46,18 @@ export default function Skills() {
   const [selectedSkill, setSelectedSkill] = useState<Skill | null>(null);
   const [copiedCmd, setCopiedCmd] = useState("");
   const [evaluation, setEvaluation] = useState<any>(null);
+  const location = useLocation();
 
-  // refs para evitar race conditions
+  // refs to avoid race conditions
   const isMountedRef = useRef(false);
   const currentSkillSlugRef = useRef<string | null>(null);
   const initialLoadDoneRef = useRef(false);
+  // track if we've already handled the ?open= param
+  const autoOpenHandledRef = useRef(false);
 
   useEffect(() => {
     isMountedRef.current = true;
-    
+
     // Single fetch on mount - avoid double fetch
     if (!initialLoadDoneRef.current) {
       initialLoadDoneRef.current = true;
@@ -64,6 +68,20 @@ export default function Skills() {
       isMountedRef.current = false;
     };
   }, []);
+
+  // Auto-open skill from ?open=<slug> query param (used by Validate page Publish button)
+  useEffect(() => {
+    if (!skills.length || autoOpenHandledRef.current) return;
+    const params = new URLSearchParams(location.search);
+    const slugToOpen = params.get('open');
+    if (slugToOpen) {
+      const match = skills.find(s => s.slug === slugToOpen);
+      if (match) {
+        autoOpenHandledRef.current = true;
+        setSelectedSkill(match);
+      }
+    }
+  }, [skills, location.search]);
 
   useEffect(() => {
     if (selectedSkill) {
@@ -382,24 +400,28 @@ export default function Skills() {
                     <Badge variant="category" label={selectedSkill.category.toUpperCase()} />
                   </div>
 
-                  {/* Evaluation Score */}
-                  {evaluation && (
-                    <div className="p-4 bg-black/30 border border-white/5 rounded-xl">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs text-gray-400 uppercase tracking-widest">Security Evaluation</span>
-                        <span className="text-sm font-bold text-neon-cyan">
-                          {isNaN(evaluation.score) ? '—' : `${(evaluation.score * 100).toFixed(0)}%`}
-                        </span>
+                  {/* Security Evaluation — always uses the skill's own validation_score */}
+                  {(() => {
+                    const score = selectedSkill.validation_score ?? 0;
+                    const pct = Math.round(score * 100);
+                    const barColor = score >= 0.8 ? 'bg-green-500' : score >= 0.6 ? 'bg-yellow-500' : 'bg-red-500';
+                    const label = score >= 0.8 ? 'Safe' : score >= 0.6 ? 'Moderate Risk' : 'High Risk';
+                    return (
+                      <div className="p-4 bg-black/30 border border-white/5 rounded-xl">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs text-gray-400 uppercase tracking-widest">Security Evaluation</span>
+                          <span className="text-sm font-bold text-neon-cyan">{pct}%</span>
+                        </div>
+                        <div className="h-2 bg-white/5 rounded-full overflow-hidden mb-2">
+                          <div
+                            className={`h-full rounded-full transition-all duration-700 ${barColor}`}
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                        <p className="text-xs text-gray-500">{label}</p>
                       </div>
-                      <div className="h-2 bg-white/5 rounded-full overflow-hidden mb-2">
-                        {!isNaN(evaluation.score) && (
-                          <div className={`h-full rounded-full transition-all ${evaluation.score >= 0.8 ? 'bg-green-500' : evaluation.score >= 0.5 ? 'bg-yellow-500' : 'bg-red-500'}`}
-                            style={{ width: `${evaluation.score * 100}%` }} />
-                        )}
-                      </div>
-                      <p className="text-xs text-gray-500">{evaluation.explanation}</p>
-                    </div>
-                  )}
+                    );
+                  })()}
 
                   {/* Description */}
                   <div>

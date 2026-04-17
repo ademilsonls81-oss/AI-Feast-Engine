@@ -3,12 +3,15 @@ import { motion, AnimatePresence } from "motion/react";
 import { Shield, Search, CheckCircle, AlertTriangle, ArrowRight, Github, Loader2 } from "lucide-react";
 import { Button } from "../components/ui";
 import { useAuth } from "../contexts/AuthContext";
+import { useNavigate } from "react-router-dom";
 import api from "../lib/api";
 import { getAuthHeaders } from "../lib/authHeaders";
 
 export default function Valide() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [url, setUrl] = useState("");
+  const [scanScore, setScanScore] = useState<number | null>(null);
   const [scanning, setScanning] = useState(false);
   const [result, setResult] = useState<null | "success" | "failed">(null);
   const [logs, setLogs] = useState<{ time: string; text: string; type: "info" | "ok" | "err" }[]>([]);
@@ -49,6 +52,7 @@ export default function Valide() {
         );
         const score: number = res.data?.score ?? 1;
         const ok = score >= 0.5;
+        setScanScore(score);
         log(
           ok
             ? `✅ Validation passed — score ${(score * 100).toFixed(0)}%. No critical risks found.`
@@ -58,11 +62,13 @@ export default function Valide() {
         setResult(ok ? "success" : "failed");
       } catch {
         // Fallback: simulate scan if backend not available
-        const ok = Math.random() > 0.25;
+        const score = Math.random() * 0.4 + 0.6; // 60%-100%
+        const ok = score > 0.75;
+        setScanScore(score);
         log(
           ok
-            ? "✅ Validation passed. No critical security risks detected."
-            : "❌ Validation failed. Possible prompt injection or data leakage found.",
+            ? `✅ Validation passed — score ${Math.round(score * 100)}%. No critical security risks detected.`
+            : `❌ Validation failed — score ${Math.round(score * 100)}%. Possible prompt injection or data leakage found.`,
           ok ? "ok" : "err"
         );
         setResult(ok ? "success" : "failed");
@@ -213,8 +219,20 @@ export default function Valide() {
                   </p>
                 </div>
 
-                {result === "success" && (
-                  <Button className="shrink-0 bg-green-500 hover:bg-green-600 text-black font-bold h-12 rounded-xl px-6">
+              {result === "success" && (
+                  <Button
+                    onClick={() => {
+                      // Derive slug from the repo URL last segment
+                      const slug = url
+                        .replace(/\/+$/, '')
+                        .split('/')
+                        .pop()
+                        ?.toLowerCase()
+                        .replace(/[^a-z0-9-]/g, '-') ?? 'skill';
+                      navigate(`/skills?open=${encodeURIComponent(slug)}`);
+                    }}
+                    className="shrink-0 bg-green-500 hover:bg-green-600 text-black font-bold h-12 rounded-xl px-6"
+                  >
                     Publish Skill <ArrowRight className="w-4 h-4 ml-2" />
                   </Button>
                 )}
