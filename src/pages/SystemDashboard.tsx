@@ -224,10 +224,10 @@ function formatDate(dateStr: string): string {
   const diffMins = Math.round(diffMs / 60000);
   const diffHours = Math.round(diffMs / 3600000);
 
-  if (diffMins < 1) return "Agora mesmo";
-  if (diffMins < 60) return `${diffMins}min atrás`;
-  if (diffHours < 24) return `${diffHours}h atrás`;
-  return date.toLocaleDateString("pt-BR");
+  if (diffMins < 1) return "Just now";
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  return date.toLocaleDateString("en-US");
 }
 
 // ==========================================
@@ -402,7 +402,7 @@ export default function SystemDashboard() {
       <div className="min-h-screen flex items-center justify-center bg-gray-900">
         <div className="text-center">
           <RefreshCw className="w-8 h-8 text-blue-400 animate-spin mx-auto mb-4" />
-          <p className="text-gray-400">Carregando dashboard...</p>
+          <p className="text-gray-400">Loading dashboard...</p>
         </div>
       </div>
     );
@@ -413,13 +413,13 @@ export default function SystemDashboard() {
       <div className="min-h-screen flex items-center justify-center bg-gray-900">
         <div className="text-center">
           <AlertCircle className="w-8 h-8 text-red-400 mx-auto mb-4" />
-          <p className="text-red-400 mb-4">Erro ao carregar dashboard</p>
+          <p className="text-red-400 mb-4">Error loading dashboard</p>
           <p className="text-gray-500 text-sm mb-4">{error}</p>
           <button
             onClick={fetchAllData}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
           >
-            Tentar novamente
+            Try again
           </button>
         </div>
       </div>
@@ -442,15 +442,15 @@ export default function SystemDashboard() {
             <div className="flex items-center gap-4">
               <Activity className="w-6 h-6 text-blue-400" />
               <div>
-                <h1 className="text-2xl font-bold">Sistema Autônomo v2</h1>
-                <p className="text-sm text-gray-400">Dashboard de Monitoramento</p>
+                <h1 className="text-2xl font-bold">Autonomous System v2</h1>
+                <p className="text-sm text-gray-400">Monitoring Dashboard</p>
               </div>
             </div>
             <div className="flex items-center gap-3">
-              <StatusBadge status={systemStatus} label={systemStatus === "online" ? "Online" : systemStatus === "problem" ? "Problema" : "Atenção"} />
+              <StatusBadge status={systemStatus} label={systemStatus === "online" ? "Online" : systemStatus === "problem" ? "Problem" : "Warning"} />
               <StatusBadge
                 status={autonomousMode === "ON" ? "online" : "warning"}
-                label={`Autônomo: ${autonomousMode}`}
+                label={`Autonomous: ${autonomousMode}`}
               />
               <button
                 onClick={fetchAllData}
@@ -458,10 +458,10 @@ export default function SystemDashboard() {
                 className="flex items-center gap-2 px-3 py-2 bg-gray-700 rounded-lg hover:bg-gray-600 transition-colors disabled:opacity-50"
               >
                 <RefreshCw className={`w-4 h-4 ${loadingData ? "animate-spin" : ""}`} />
-                <span className="text-sm">Atualizar</span>
+                <span className="text-sm">Refresh</span>
               </button>
               <div className="text-xs text-gray-500">
-                Última atualização: {lastRefresh.toLocaleTimeString("pt-BR")}
+                Last update: {lastRefresh.toLocaleTimeString("en-US")}
               </div>
             </div>
           </div>
@@ -469,45 +469,45 @@ export default function SystemDashboard() {
       </div>
 
       <div className="max-w-7xl mx-auto px-6 py-6 space-y-6">
-        {/* Métricas Rápidas */}
+        {/* Rapid Metrics */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <MetricCard
             icon={BarChart3}
-            label="Erros Detectados (Hoje)"
+            label="Detected Errors (Today)"
             value={metrics?.today.errors_detected || 0}
             trend={metrics?.yesterday.errors_detected ? Math.round((1 - (metrics.today.errors_detected / metrics.yesterday.errors_detected)) * 100) : undefined}
           />
           <MetricCard
             icon={CheckCircle}
-            label="Correções Aplicadas (Hoje)"
+            label="Applied Fixes (Today)"
             value={metrics?.today.fixes_applied || 0}
             trend={metrics?.yesterday.fixes_applied ? Math.round((1 - (metrics.today.fixes_applied / metrics.yesterday.fixes_applied)) * 100) : undefined}
           />
           <MetricCard
             icon={Shield}
-            label="Decisões de Risco (Hoje)"
+            label="Risk Decisions (Today)"
             value={metrics?.today.risk_decisions || 0}
           />
           <MetricCard
             icon={TrendingUp}
-            label="Posts Publicados (Hoje)"
+            label="Posts Published (Today)"
             value={metrics?.today.posts_published || 0}
           />
         </div>
 
-        {/* Status Geral */}
+        {/* General Status */}
         <div className="bg-gray-800 rounded-xl p-6 border border-gray-700">
           <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
             <Activity className="w-5 h-5 text-blue-400" />
-            Status Geral
+            General Status
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="bg-gray-900 rounded-lg p-4">
-              <div className="text-sm text-gray-400 mb-1">Loop Principal</div>
+              <div className="text-sm text-gray-400 mb-1">Main Loop</div>
               <div className="flex items-center gap-2">
                 <div className={`w-3 h-3 rounded-full ${status?.loop_status.is_running ? "bg-yellow-400 animate-pulse" : "bg-green-400"}`} />
                 <span className="font-medium">
-                  {status?.loop_status.is_running ? "Executando" : "Inativo"}
+                  {status?.loop_status.is_running ? "Running" : "Inactive"}
                 </span>
               </div>
               <div className="text-xs text-gray-500 mt-1">{status?.loop_status.message}</div>
@@ -517,38 +517,38 @@ export default function SystemDashboard() {
               <div className="flex items-center gap-2">
                 <div className={`w-3 h-3 rounded-full ${status?.circuit_breaker.is_active ? "bg-red-400 animate-pulse" : "bg-green-400"}`} />
                 <span className="font-medium">
-                  {status?.circuit_breaker.is_active ? "Ativo" : "Inativo"}
+                  {status?.circuit_breaker.is_active ? "Active" : "Inactive"}
                 </span>
               </div>
               <div className="text-xs text-gray-500 mt-1">
-                {status?.circuit_breaker.consecutive_failures}/{status?.circuit_breaker.threshold} falhas consecutivas
+                {status?.circuit_breaker.consecutive_failures}/{status?.circuit_breaker.threshold} consecutive failures
               </div>
             </div>
             <div className="bg-gray-900 rounded-lg p-4">
-              <div className="text-sm text-gray-400 mb-1">Última Execução</div>
+              <div className="text-sm text-gray-400 mb-1">Last Execution</div>
               <div className="flex items-center gap-2">
                 <Clock className="w-4 h-4 text-gray-400" />
                 <span className="font-medium">
-                  {status?.last_loop_execution ? formatDate(status.last_loop_execution) : "Nunca"}
+                  {status?.last_loop_execution ? formatDate(status.last_loop_execution) : "Never"}
                 </span>
               </div>
               <div className="text-xs text-gray-500 mt-1">
-                {status?.total_fixes_applied} correções aplicadas no total
+                {status?.total_fixes_applied} total fixes applied
               </div>
             </div>
           </div>
         </div>
 
-        {/* Erros Recentes */}
+        {/* Recent Errors */}
         <div className="bg-gray-800 rounded-xl p-6 border border-gray-700">
           <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
             <AlertTriangle className="w-5 h-5 text-red-400" />
-            Erros Recentes ({errors.length})
+            Recent Errors ({errors.length})
           </h2>
           {errors.length === 0 ? (
             <div className="text-center py-8 text-gray-500">
               <CheckCircle className="w-8 h-8 text-green-400 mx-auto mb-2" />
-              <p>Nenhum erro encontrado</p>
+              <p>No errors found</p>
             </div>
           ) : (
             <div className="space-y-2">
@@ -576,15 +576,15 @@ export default function SystemDashboard() {
           )}
         </div>
 
-        {/* Correções Automáticas */}
+        {/* Automatic Fixes */}
         <div className="bg-gray-800 rounded-xl p-6 border border-gray-700">
           <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
             <Zap className="w-5 h-5 text-yellow-400" />
-            Correções Automáticas ({fixes.length})
+            Automatic Fixes ({fixes.length})
           </h2>
           {fixes.length === 0 ? (
             <div className="text-center py-8 text-gray-500">
-              <p>Nenhuma correção automática registrada</p>
+              <p>No automatic fixes registered</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -592,8 +592,8 @@ export default function SystemDashboard() {
                 <thead>
                   <tr className="border-b border-gray-700">
                     <th className="text-left py-2 px-3 text-gray-400">Status</th>
-                    <th className="text-left py-2 px-3 text-gray-400">Commit</th>
-                    <th className="text-left py-2 px-3 text-gray-400">Data</th>
+                    <th className="text-left py-2 px-3 text-gray-400">Confidence</th>
+                    <th className="text-left py-2 px-3 text-gray-400">Date</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -625,15 +625,15 @@ export default function SystemDashboard() {
           )}
         </div>
 
-        {/* Decisões de Risco */}
+        {/* Risk Decisions */}
         <div className="bg-gray-800 rounded-xl p-6 border border-gray-700">
           <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
             <Shield className="w-5 h-5 text-purple-400" />
-            Decisões de Risco ({decisions.length})
+            Risk Decisions ({decisions.length})
           </h2>
           {decisions.length === 0 ? (
             <div className="text-center py-8 text-gray-500">
-              <p>Nenhuma decisão de risco registrada</p>
+              <p>No risk decisions registered</p>
             </div>
           ) : (
             <div className="space-y-2">

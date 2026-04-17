@@ -13,8 +13,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   // Navigation Items for the main menu
   const navItems = [
-    { name: "Validar", path: "/valide", icon: Zap },
-    { name: "Engine", path: "/engine", icon: Factory }, // Usando Factory para destacar a Engine/Factory
+    { name: "Validate", path: "/valide", icon: Zap },
+    { name: "Engine", path: "/engine", icon: Factory },
     { name: "Skills", path: "/skills", icon: Puzzle },
     { name: "Status", path: "/status", icon: Activity },
   ];
@@ -35,7 +35,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             </span>
           </Link>
 
-          {/* Desktop Nav - Mostra os links principais (Validar, Engine, Skills, Status) */}
+          {/* Desktop Nav - Mostra os links principais (Validate, Engine, Skills, Status) */}
           <div className="hidden md:flex items-center gap-8">
             {navItems.map((item) => (
               <Link
@@ -95,7 +95,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                       }`}
                     >
                       <AlertTriangle className="w-3.5 h-3.5" />
-                      Erros
+                      Errors
                     </Link>
                     <Link
                       to="/admin/auto-fixes"

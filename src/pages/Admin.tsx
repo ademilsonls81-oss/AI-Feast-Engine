@@ -14,7 +14,6 @@ import {
   FormField,
   Button,
   Card,
-  CardCompact,
   Spinner,
   SkeletonGrid,
 } from "../components/ui";
@@ -197,15 +196,15 @@ export default function Admin() {
         throw error;
       }
 
-      if (isMountedRef.current) {
+        if (isMountedRef.current) {
         setAutonomousEnabled(newValue);
         alert(newValue 
-          ? "✅ Sistema autônomo REATIVADO" 
-          : "⚠️ Sistema autônomo PAUSADO");
+          ? "✅ Autonomous system REACTIVATED" 
+          : "⚠️ Autonomous system PAUSED");
       }
     } catch (err: any) {
       console.error("[Admin] handleToggleAutonomous error:", err);
-      alert("❌ Erro ao alterar estado: " + (err.message || "Tente novamente"));
+      alert("❌ Error toggling state: " + (err.message || "Try again"));
     } finally {
       if (isMountedRef.current) {
         setIsToggling(false);
@@ -366,7 +365,7 @@ export default function Admin() {
 
   const handleGenerateSkill = async () => {
     if (skillPrompt.trim().length < 10) {
-      alert("⚠️ Descreva a skill com pelo menos 10 caracteres");
+      alert("⚠️ Describe the skill with at least 10 characters");
       return;
     }
 
@@ -381,11 +380,11 @@ export default function Admin() {
         setGeneratedSkillPreview(res.data.skill);
         setSkillPrompt("");
         fetchSkills();
-        alert(`✅ Skill gerada com sucesso: ${res.data.skill.name}`);
+        alert(`✅ Skill generated successfully: ${res.data.skill.name}`);
       }
     } catch (err: any) {
-      const errorMsg = err.response?.data?.error || err.message || "Erro desconhecido";
-      alert(`❌ Erro ao gerar skill: ${errorMsg}`);
+      const errorMsg = err.response?.data?.error || err.message || "Unknown error";
+      alert(`❌ Error generating skill: ${errorMsg}`);
     } finally {
       setIsGenerating(false);
     }
@@ -397,19 +396,19 @@ export default function Admin() {
       await api.post(`/api/admin/skills/${skill.id}/toggle`, {}, { headers });
       fetchSkills();
     } catch (err: any) {
-      alert("Erro ao alternar skill: " + (err.response?.data?.error || err.message));
+      alert("Error toggling skill: " + (err.response?.data?.error || err.message));
     }
   };
 
   const handleDeleteSkill = async (skill: Skill) => {
-    if (!window.confirm(`Tem certeza que deseja deletar "${skill.name}"?`)) return;
+    if (!window.confirm(`Are you sure you want to delete "${skill.name}"?`)) return;
     try {
       const headers = await getAuthHeaders();
       await api.delete(`/api/admin/skills/${skill.id}`, { headers });
       fetchSkills();
-      alert("Skill deletada com sucesso");
+      alert("Skill deleted successfully");
     } catch (err: any) {
-      alert("Erro ao deletar skill: " + (err.response?.data?.error || err.message));
+      alert("Error deleting skill: " + (err.response?.data?.error || err.message));
     }
   };
 
@@ -436,13 +435,13 @@ export default function Admin() {
       
       // Only update if this is still the latest operation
       if (currentOpId === importOperationId.current && isMountedRef.current) {
-        alert(`Import concluído: ${res.data.log.inserted} inseridas, ${res.data.log.updated} atualizadas`);
+        alert(`Import finished: ${res.data.log.inserted} inserted, ${res.data.log.updated} updated`);
         fetchImportLogs();
         fetchSkills();
       }
     } catch (err: any) {
       if (currentOpId === importOperationId.current) {
-        alert("Erro no import: " + (err.response?.data?.error || err.message));
+        alert("Import error: " + (err.response?.data?.error || err.message));
       }
     } finally {
       if (currentOpId === importOperationId.current && isMountedRef.current) {
@@ -464,7 +463,7 @@ export default function Admin() {
       }
     } catch (err: any) {
       if (currentOpId === importOperationId.current) {
-        alert("Erro no dry run: " + (err.response?.data?.error || err.message));
+        alert("Dry run error: " + (err.response?.data?.error || err.message));
       }
     } finally {
       if (currentOpId === importOperationId.current && isMountedRef.current) {
@@ -517,7 +516,7 @@ export default function Admin() {
       <div className="min-h-screen bg-dark-bg flex items-center justify-center">
         <div className="text-center">
           <Spinner size="lg" />
-          <p className="text-gray-400 mt-4">Carregando painel administrativo...</p>
+          <p className="text-gray-400 mt-4">Loading administrative panel...</p>
         </div>
       </div>
     );
@@ -529,15 +528,15 @@ export default function Admin() {
       <div className="min-h-screen bg-dark-bg flex items-center justify-center px-4">
         <div className="text-center max-w-md">
           <AlertCircle className="w-16 h-16 text-red-400 mx-auto mb-6" />
-          <h2 className="text-2xl font-bold text-white mb-3">Sessão Expirada</h2>
+          <h2 className="text-2xl font-bold text-white mb-3">Session Expired</h2>
           <p className="text-gray-400 mb-8">
-            Sua sessão expirou ou você não tem permissão para acessar esta área. Faça login novamente para continuar.
+            Your session has expired or you do not have permission to access this area. Please log in again to continue.
           </p>
           <button
             onClick={handleRelogin}
             className="px-8 py-4 bg-gradient-to-r from-neon-purple to-neon-cyan text-white rounded-xl font-bold shadow-lg shadow-neon-purple/20 hover:scale-105 transition-all"
           >
-            Fazer Login Novamente
+            Log In Again
           </button>
         </div>
       </div>
@@ -567,11 +566,11 @@ export default function Admin() {
               <Power className={`w-8 h-8 ${autonomousEnabled ? 'text-green-400' : 'text-red-400'}`} />
             </div>
             <div>
-              <h2 className="text-xl font-bold text-white">Sistema Autônomo</h2>
+              <h2 className="text-xl font-bold text-white">Autonomous System</h2>
               <p className="text-sm text-gray-400">
                 {autonomousEnabled 
-                  ? "✅ Sistema operando normalmente" 
-                  : "⚠️ Sistema pausado - nenhuma ação automática será executada"}
+                  ? "✅ System operating normally" 
+                  : "⚠️ System paused - no automatic actions will be executed"}
               </p>
             </div>
           </div>
@@ -585,7 +584,7 @@ export default function Admin() {
             } disabled:opacity-50 disabled:cursor-not-allowed`}
           >
             <Power className={`w-5 h-5 ${isToggling ? 'animate-spin' : ''}`} />
-            {isToggling ? "Alterando..." : (autonomousEnabled ? "PAUSAR SISTEMA" : "ATIVAR SISTEMA")}
+            {isToggling ? "Changing..." : (autonomousEnabled ? "PAUSE SYSTEM" : "ACTIVATE SYSTEM")}
           </button>
         </div>
       </div>
@@ -654,13 +653,13 @@ export default function Admin() {
           {/* Skills Management Section */}
           <div className="p-8 bg-dark-card border border-white/10 rounded-3xl">
             <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
-              <Sparkles className="w-5 h-5 text-neon-cyan" /> Gerenciar Skills
+              <Sparkles className="w-5 h-5 text-neon-cyan" /> Manage Skills
             </h2>
 
             {/* Generate Skill Form */}
             <div className="space-y-4 mb-8">
               <Textarea
-                placeholder="Descreva a skill que deseja gerar... Ex: 'Skill que analisa código Python e sugere melhorias de segurança'"
+                placeholder="Describe the skill you want to generate... Ex: 'Skill that analyzes Python code and suggests security improvements'"
                 value={skillPrompt}
                 onChange={e => setSkillPrompt(e.target.value)}
               />
@@ -671,17 +670,17 @@ export default function Admin() {
                 onClick={handleGenerateSkill}
               >
                 <Sparkles className={`w-5 h-5 ${isGenerating ? 'animate-spin' : ''}`} />
-                {isGenerating ? "Gerando com IA..." : "Gerar com IA"}
+                {isGenerating ? "Generating with AI..." : "Generate with AI"}
               </Button>
             </div>
 
             {/* Generated Skill Preview */}
             {generatedSkillPreview && (
               <div className="mb-8 p-6 bg-neon-purple/5 border border-neon-purple/20 rounded-2xl">
-                <h3 className="text-sm font-bold text-neon-purple uppercase tracking-widest mb-4">Última Skill Gerada</h3>
+                <h3 className="text-sm font-bold text-neon-purple uppercase tracking-widest mb-4">Last Skill Generated</h3>
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
-                    <span className="text-gray-500">Nome:</span>
+                    <span className="text-gray-500">Name:</span>
                     <span className="text-white font-medium">{generatedSkillPreview.name}</span>
                   </div>
                   <div className="flex justify-between">
@@ -689,11 +688,11 @@ export default function Admin() {
                     <span className="text-neon-cyan font-mono">{generatedSkillPreview.slug}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-500">Categoria:</span>
+                    <span className="text-gray-500">Category:</span>
                     <span className="text-white">{generatedSkillPreview.category}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-500">Risco:</span>
+                    <span className="text-gray-500">Risk:</span>
                     <span className={`font-bold ${
                       generatedSkillPreview.risk_level === 'low' ? 'text-green-400' :
                       generatedSkillPreview.risk_level === 'medium' ? 'text-yellow-400' : 'text-red-400'
@@ -703,7 +702,7 @@ export default function Admin() {
                   </div>
                   <div className="flex justify-between">
                     <span className="text-gray-500">Status:</span>
-                    <span className="text-green-400 font-medium">✅ Ativa</span>
+                    <span className="text-green-400 font-medium">✅ Active</span>
                   </div>
                 </div>
               </div>
@@ -752,7 +751,7 @@ export default function Admin() {
           {/* Import Pipeline Section */}
           <div className="p-8 bg-dark-card border border-white/10 rounded-3xl">
             <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
-              <FileText className="w-5 h-5 text-neon-cyan" /> Import de Skills (GitHub)
+              <FileText className="w-5 h-5 text-neon-cyan" /> Skill Import (GitHub)
             </h2>
 
             {/* Action Buttons */}
@@ -763,7 +762,7 @@ export default function Admin() {
                 loading={isImporting}
                 onClick={handleRunImport}
               >
-                <Play className="w-4 h-4" /> {isImporting ? "Rodando..." : "Rodar agora"}
+                <Play className="w-4 h-4" /> {isImporting ? "Running..." : "Run now"}
               </Button>
               <Button
                 variant="primary"
@@ -780,13 +779,13 @@ export default function Admin() {
               <table className="w-full text-xs">
                 <thead>
                   <tr className="text-gray-500 uppercase tracking-wider border-b border-white/5">
-                    <th className="text-left py-2 px-2">Data</th>
+                    <th className="text-left py-2 px-2">Date</th>
                     <th className="text-left py-2 px-2">Trigger</th>
-                    <th className="text-center py-2 px-2">Desc.</th>
+                    <th className="text-center py-2 px-2">Disc.</th>
                     <th className="text-center py-2 px-2">Insert.</th>
                     <th className="text-center py-2 px-2">Upd.</th>
                     <th className="text-center py-2 px-2">Skip</th>
-                    <th className="text-center py-2 px-2">Erros</th>
+                    <th className="text-center py-2 px-2">Errors</th>
                   </tr>
                 </thead>
                 <tbody>

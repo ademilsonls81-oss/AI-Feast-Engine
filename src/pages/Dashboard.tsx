@@ -7,7 +7,7 @@ import { Link } from 'react-router-dom';
 import {
   Key, Copy, Eye, EyeOff, RefreshCw, Zap, BarChart3, Activity, Clock,
   CheckCircle, Sparkles, ArrowUpRight, TrendingUp, AlertTriangle, Loader2,
-  ShieldAlert, ExternalLink
+  ShieldAlert, ExternalLink, Cpu
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
@@ -433,6 +433,11 @@ export default function Dashboard() {
                   <CardTitle>Quick Actions</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-2">
+                  <Link to="/engine">
+                    <Button variant="outline" className="w-full justify-start gap-2 border-primary/30 bg-primary/5 hover:bg-primary/10">
+                      <Cpu className="w-4 h-4 text-primary" /> AI Content Engine
+                    </Button>
+                  </Link>
                   <Link to="/docs">
                     <Button variant="outline" className="w-full justify-start gap-2">
                       <Zap className="w-4 h-4" /> View Documentation
