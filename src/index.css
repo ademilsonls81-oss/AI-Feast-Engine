@@ -1,43 +1,115 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap');
 @import "tailwindcss";
 
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-display: "Space Grotesk", sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
   
   --color-neon-purple: #a855f7;
   --color-neon-cyan: #06b6d4;
   --color-dark-bg: #0a0a0a;
   --color-dark-card: #141414;
-  
-  --animate-blob: blob 10s infinite;
-  
-  @keyframes blob {
-    0% { transform: "translate(0px, 0px) scale(1)" }
-    33% { transform: "translate(40px, -50px) scale(1.1)" }
-    66% { transform: "translate(-30px, 30px) scale(0.9)" }
-    100% { transform: "translate(0px, 0px) scale(1)" }
-  }
 }
 
-@layer base {
-  body {
-    @apply bg-dark-bg text-gray-100 font-sans antialiased;
-  }
-  
-  h1, h2, h3, h4, h5, h6 {
-    @apply font-display font-bold tracking-tight;
-  }
+:root {
+  --background: 222 47% 5%;
+  --foreground: 210 40% 96%;
+  --card: 222 47% 7%;
+  --card-foreground: 210 40% 96%;
+  --popover: 222 47% 7%;
+  --popover-foreground: 210 40% 96%;
+  --primary: 262 83% 65%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 222 47% 12%;
+  --secondary-foreground: 210 40% 96%;
+  --muted: 222 47% 10%;
+  --muted-foreground: 215 20% 55%;
+  --accent: 199 89% 55%;
+  --accent-foreground: 0 0% 100%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 222 47% 14%;
+  --input: 222 47% 12%;
+  --ring: 262 83% 65%;
+  --radius: 0.75rem;
+  --chart-1: 262 83% 65%;
+  --chart-2: 199 89% 55%;
+  --chart-3: 142 71% 45%;
+  --chart-4: 43 96% 56%;
+  --chart-5: 0 84% 60%;
+  --sidebar-background: 222 47% 5%;
+  --sidebar-foreground: 210 40% 80%;
+  --sidebar-primary: 262 83% 65%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 222 47% 10%;
+  --sidebar-accent-foreground: 210 40% 96%;
+  --sidebar-border: 222 47% 14%;
+  --sidebar-ring: 262 83% 65%;
 }
 
-@layer utilities {
-  .animation-delay-2000 {
-    animation-delay: 2s;
-  }
-  
-  .animation-delay-4000 {
-    animation-delay: 4s;
-  }
+* {
+  border-color: hsl(var(--border));
+}
+
+body {
+  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: hsl(var(--muted));
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground));
+}
+
+.gradient-text {
+  background: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--accent)));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.glow {
+  box-shadow: 0 0 40px hsl(var(--primary) / 0.15);
+}
+
+.glow-accent {
+  box-shadow: 0 0 40px hsl(var(--accent) / 0.15);
+}
+
+.glass {
+  background: hsl(var(--card) / 0.6);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.font-mono {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.grid-pattern {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60' viewBox='0 0 60 60'%3E%3Cg fill='none' stroke='white' stroke-width='1'%3E%3Cpath d='M0 0h60v60H0z'/%3E%3C/g%3E%3C/svg%3E");
+  opacity: 0.03;
+}
+
+@keyframes pulse-glow {
+  0%, 100% { opacity: 0.2; transform: scale(1); }
+  50% { opacity: 0.35; transform: scale(1.08); }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 4s ease-in-out infinite;
 }
 
 .neon-glow-purple {
@@ -52,25 +124,15 @@
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
 }
 
-.neon-border-purple {
-  border: 1px solid rgba(168, 85, 247, 0.3);
+.animation-delay-2000 {
+  animation-delay: 2s;
 }
 
-.neon-text-purple {
-  text-shadow: 0 0 10px rgba(168, 85, 247, 0.5);
-}
-
-.neon-text-cyan {
-  text-shadow: 0 0 10px rgba(6, 182, 212, 0.5);
-}
-
-.gradient-text {
-  background: linear-gradient(to right, #a855f7, #06b6d4);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+.animation-delay-4000 {
+  animation-delay: 4s;
 }

@@ -1,73 +1,152 @@
-import React from 'react';
-import { Button, Badge, Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui";
+import { motion } from 'framer-motion';
+import { Button } from "@/components/ui";
+import { Check, Sparkles } from 'lucide-react';
 import { Link } from 'react-router-dom';
+
+const plans = [
+  {
+    name: 'Free',
+    price: '$0',
+    period: '/mês',
+    description: 'Para começar a explorar',
+    features: [
+      '100 requisições/mês',
+      '10 req/min rate limit',
+      'Skills básicas',
+      '1 API key',
+      'Community support'
+    ],
+    cta: 'Conseguir Grátis',
+    popular: false
+  },
+  {
+    name: 'Pro',
+    price: '$29',
+    period: '/mês',
+    description: 'Para times em produção',
+    features: [
+      '10.000 requisições/mês',
+      '100 req/min rate limit',
+      'Todas as skills',
+      'API keys ilimitadas',
+      'Analytics avançado',
+      'Priority support',
+      'Webhooks'
+    ],
+    cta: 'Upgrade para Pro',
+    popular: true
+  },
+  {
+    name: 'Enterprise',
+    price: 'Custom',
+    period: '',
+    description: 'Para grandes operações',
+    features: [
+      'Requisições ilimitadas',
+      'Rate limit customizado',
+      'Skills exclusivas',
+      'SSO (SAML/OIDC)',
+      'SLA garantido',
+      'Dedicated support',
+      'White-label'
+    ],
+    cta: 'Falar com Vendas',
+    popular: false
+  }
+];
 
 export default function Pricing() {
   return (
-    <section className="py-24">
-      <div className="grid md:grid-cols-3 gap-8 max-w-7xl mx-auto px-4">
-        {/* Grátis */}
-        <Card className="border-zinc-800 bg-black/50 p-8 rounded-3xl flex flex-col">
-          <CardHeader className="p-0 mb-6">
-            <CardTitle className="text-xl">Grátis</CardTitle>
-            <p className="text-4xl font-bold mt-2">R$ 0</p>
-            <CardDescription>Para testes e projetos pessoais</CardDescription>
-          </CardHeader>
-          <CardContent className="p-0 flex-grow space-y-3 text-sm text-muted-foreground">
-            <p>✓ 5 skills disponíveis</p>
-            <p>✓ 100 requisições/mês</p>
-            <p>✓ Suporte da comunidade</p>
-            <p>✓ CLI básico</p>
-          </CardContent>
-          <CardFooter className="p-0 mt-8">
-            <Link to="/dashboard">
-              <Button variant="outline" className="w-full border-zinc-700 rounded-full">Começar Grátis</Button>
-            </Link>
-          </CardFooter>
-        </Card>
+    <section id="pricing" className="py-24 relative">
+      {/* Blob central */}
+      <div className="absolute inset-0 -z-10">
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full blur-3xl opacity-50"
+          style={{ background: 'hsl(262 83% 65% / 0.1)' }}
+        />
+      </div>
 
-        {/* Pro (Destaque Roxo) */}
-        <Card className="border-purple-500 bg-black/50 p-8 rounded-3xl flex flex-col relative shadow-[0_0_30px_rgba(139,92,246,0.2)]">
-          <Badge className="absolute -top-3 left-1/2 -translate-x-1/2 bg-purple-600">Mais Popular</Badge>
-          <CardHeader className="p-0 mb-6">
-            <CardTitle className="text-xl">Pro</CardTitle>
-            <p className="text-4xl font-bold mt-2">R$ 97 <span className="text-sm text-muted-foreground">/mês</span></p>
-            <CardDescription>Para desenvolvedores e equipes</CardDescription>
-          </CardHeader>
-          <CardContent className="p-0 flex-grow space-y-3 text-sm text-muted-foreground">
-            <p>✓ Todos os skills</p>
-            <p>✓ 10.000 requisições/mês</p>
-            <p>✓ Suporte prioritário</p>
-            <p>✓ API key dedicada</p>
-            <p>✓ Webhooks</p>
-            <p>✓ Integrações avançadas</p>
-          </CardContent>
-          <CardFooter className="p-0 mt-8">
-            <Link to="/dashboard">
-              <Button className="w-full bg-purple-600 hover:bg-purple-700 rounded-full">Assinar Pro</Button>
-            </Link>
-          </CardFooter>
-        </Card>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        {/* Header */}
+        <div className="text-center mb-16">
+          <motion.h2
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            className="text-3xl sm:text-4xl font-bold mb-4"
+          >
+            Planos para cada{' '}
+            <span className="gradient-text">estágio</span>
+          </motion.h2>
+          <motion.p
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ delay: 0.1 }}
+            className="text-lg text-muted-foreground"
+          >
+            Comece grátis, escale quando precisar
+          </motion.p>
+        </div>
 
-        {/* Enterprise */}
-        <Card className="border-zinc-800 bg-black/50 p-8 rounded-3xl flex flex-col">
-          <CardHeader className="p-0 mb-6">
-            <CardTitle className="text-xl">Enterprise</CardTitle>
-            <p className="text-4xl font-bold mt-2">Sob consulta</p>
-            <CardDescription>Para empresas e scale-ups</CardDescription>
-          </CardHeader>
-          <CardContent className="p-0 flex-grow space-y-3 text-sm text-muted-foreground">
-            <p>✓ Tudo do Pro</p>
-            <p>✓ Requisições ilimitadas</p>
-            <p>✓ Suporte 24/7</p>
-            <p>✓ SLA garantido</p>
-            <p>✓ Onboarding dedicado</p>
-            <p>✓ Custom Integrations</p>
-          </CardContent>
-          <CardFooter className="p-0 mt-8">
-            <Button variant="outline" className="w-full border-zinc-700 rounded-full">Falar com Vendas</Button>
-          </CardFooter>
-        </Card>
+        {/* Cards */}
+        <div className="grid md:grid-cols-3 gap-6 lg:gap-8">
+          {plans.map((plan, index) => (
+            <motion.div
+              key={plan.name}
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ delay: index * 0.1 }}
+              className={`relative rounded-2xl border p-6 lg:p-8 ${
+                plan.popular
+                  ? 'border-primary/50 bg-card/60 glow'
+                  : 'border-border/50 bg-card/30'
+              }`}
+            >
+              {/* Badge Popular */}
+              {plan.popular && (
+                <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-gradient-to-r from-primary to-accent text-xs font-medium text-white">
+                    <Sparkles className="w-3 h-3" />
+                    Popular
+                  </span>
+                </div>
+              )}
+
+              <div className="mb-6">
+                <h3 className="text-xl font-semibold mb-2">{plan.name}</h3>
+                <p className="text-muted-foreground text-sm">{plan.description}</p>
+              </div>
+
+              <div className="mb-6">
+                <span className="text-4xl font-bold">{plan.price}</span>
+                <span className="text-muted-foreground">{plan.period}</span>
+              </div>
+
+              <ul className="space-y-3 mb-8">
+                {plan.features.map((feature) => (
+                  <li key={feature} className="flex items-start gap-3 text-sm">
+                    <Check className="w-4 h-4 text-chart-3 mt-0.5 flex-shrink-0" />
+                    <span>{feature}</span>
+                  </li>
+                ))}
+              </ul>
+
+              <Link to="/dashboard">
+                <Button
+                  className={`w-full ${
+                    plan.popular
+                      ? 'bg-gradient-to-r from-primary to-accent hover:opacity-90 text-white border-0'
+                      : ''
+                  }`}
+                  variant={plan.popular ? 'default' : 'outline'}
+                >
+                  {plan.cta}
+                </Button>
+              </Link>
+            </motion.div>
+          ))}
+        </div>
       </div>
     </section>
   );

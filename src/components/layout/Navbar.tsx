@@ -15,21 +15,23 @@ export default function Navbar() {
   const location = useLocation();
 
   return (
-    <nav className="fixed top-0 left-0 right-0 z-50 border-b bg-background/80 backdrop-blur-md">
+    <nav className="fixed top-0 left-0 right-0 z-50 glass border-b border-border/50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
+          {/* Logo */}
           <Link to="/" className="flex items-center gap-2.5 group">
             <div className="relative">
-              <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
+              <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-primary to-accent flex items-center justify-center">
                 <Sparkles className="w-5 h-5 text-white" />
               </div>
-              <div className="absolute inset-0 rounded-lg bg-gradient-to-br from-purple-500 to-pink-500 opacity-50 blur-lg group-hover:opacity-75 transition-opacity" />
+              <div className="absolute inset-0 rounded-lg bg-gradient-to-br from-primary to-accent opacity-50 blur-lg group-hover:opacity-75 transition-opacity" />
             </div>
             <span className="font-bold text-lg tracking-tight">
               AI<span className="gradient-text">Feast</span>
             </span>
           </Link>
 
+          {/* Desktop Nav */}
           <div className="hidden md:flex items-center gap-1">
             {navLinks.map((link) => {
               const isActive = location.pathname === link.href;
@@ -38,12 +40,9 @@ export default function Navbar() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    className={`gap-2 relative ${isActive ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                    className={`gap-2 ${isActive ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
                   >
-                    {isActive && (
-                      <div className="absolute inset-0 rounded-md bg-purple-500/20 blur-md -z-10" />
-                    )}
-                    <link.icon className={`w-4 h-4 ${isActive ? 'text-purple-500 drop-shadow-[0_0_8px_rgba(168,85,247,0.8)]' : ''}`} />
+                    <link.icon className="w-4 h-4" />
                     {link.label}
                   </Button>
                 </Link>
@@ -51,21 +50,22 @@ export default function Navbar() {
             })}
           </div>
 
+          {/* CTA */}
           <div className="hidden md:flex items-center gap-3">
             <Link to="/dashboard">
-              <Button variant="ghost" size="sm" className="gap-2 relative">
-                <div className="absolute inset-0 rounded-md bg-purple-500/10 blur-md -z-10" />
-                <LayoutDashboard className="w-4 h-4 text-purple-500 drop-shadow-[0_0_8px_rgba(168,85,247,0.8)]" />
+              <Button variant="ghost" size="sm" className="gap-2">
+                <LayoutDashboard className="w-4 h-4" />
                 Dashboard
               </Button>
             </Link>
             <Link to="/dashboard">
-              <Button size="sm" className="bg-gradient-to-r from-purple-500 to-pink-500 hover:opacity-90 text-white border-0">
-                Começar Grátis
+              <Button size="sm" className="bg-gradient-to-r from-primary to-accent hover:opacity-90 text-white border-0">
+                Get Started
               </Button>
             </Link>
           </div>
 
+          {/* Mobile Menu Button */}
           <button
             className="md:hidden p-2 rounded-lg hover:bg-secondary transition-colors"
             onClick={() => setMobileOpen(!mobileOpen)}
@@ -75,13 +75,14 @@ export default function Navbar() {
         </div>
       </div>
 
+      {/* Mobile Menu */}
       <AnimatePresence>
         {mobileOpen && (
           <motion.div
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0 }}
-            className="md:hidden border-t bg-background/80 backdrop-blur-md"
+            className="md:hidden border-t border-border/50 glass"
           >
             <div className="px-4 py-4 space-y-2">
               {navLinks.map((link) => (
@@ -95,9 +96,9 @@ export default function Navbar() {
                   {link.label}
                 </Link>
               ))}
-              <div className="pt-2 border-t">
+              <div className="pt-2 border-t border-border/50">
                 <Link to="/dashboard" onClick={() => setMobileOpen(false)}>
-                  <Button className="w-full bg-gradient-to-r from-purple-500 to-pink-500 hover:opacity-90 text-white border-0">
+                  <Button className="w-full bg-gradient-to-r from-primary to-accent hover:opacity-90 text-white border-0">
                     Dashboard
                   </Button>
                 </Link>

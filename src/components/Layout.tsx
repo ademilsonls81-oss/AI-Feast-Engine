@@ -11,9 +11,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
 
   const navItems = [
-    { name: "Live Feed", path: "/feed", icon: Globe },
+    { name: "Validar", path: "/valide", icon: Zap },
     { name: "Skills", path: "/skills", icon: Puzzle },
-    { name: "Docs", path: "/docs", icon: BookOpen },
+    { name: "Status", path: "/status", icon: Activity },
   ];
 
   const isActive = (path: string) => location.pathname === path;
@@ -28,7 +28,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               <Zap className="w-6 h-6 text-white" />
             </div>
             <span className="text-xl font-display font-bold tracking-tight">
-              AI FEAST <span className="text-neon-cyan">ENGINE</span>
+              AI<span className="text-neon-cyan gradient-text">Feast</span>
             </span>
           </Link>
 
@@ -126,8 +126,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 </div>
               </div>
             ) : (
-              <Button variant="primary" size="sm" onClick={signInWithGoogle} className="!rounded-full !bg-white !text-black hover:!bg-gray-200">
-                Sign In
+              <Button variant="primary" size="sm" onClick={signInWithGoogle} className="bg-gradient-to-r from-primary to-accent hover:opacity-90 text-white border-0 gap-2 h-10 px-5 text-sm font-bold shadow-lg shadow-neon-purple/20">
+                Começar Grátis
               </Button>
             )}
           </div>
@@ -139,20 +139,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-[500px] bg-neon-purple/5 blur-[120px] -z-10" />
         {children}
       </main>
-
-      {/* Footer */}
-      <footer className="py-12 border-t border-white/5 bg-black">
-        <div className="container mx-auto px-6 flex flex-col md:flex-row items-center justify-between gap-6">
-          <div className="text-gray-500 text-xs">
-            © 2026 AI Feast Engine. All systems operational.
-          </div>
-          <div className="flex items-center gap-8">
-            <Link to="/privacy" className="text-gray-500 hover:text-white transition-all text-xs">Privacy</Link>
-            <Link to="/terms" className="text-gray-500 hover:text-white transition-all text-xs">Terms</Link>
-            <Link to="/status" className="text-gray-500 hover:text-white transition-all text-xs">API Status</Link>
-          </div>
-        </div>
-      </footer>
     </div>
   );
 }

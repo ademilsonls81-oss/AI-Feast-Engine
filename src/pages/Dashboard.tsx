@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui";
+import { Button } from "@/components/ui";
+import { Input } from "@/components/ui";
+import { Badge } from "@/components/ui";
+import { Progress } from "@/components/ui";
 import { Link } from 'react-router-dom';
 import { Key, Copy, Eye, EyeOff, RefreshCw, Zap, BarChart3, Activity, Clock, CheckCircle, Sparkles, ArrowUpRight, TrendingUp } from 'lucide-react';
 import { motion } from 'motion/react';

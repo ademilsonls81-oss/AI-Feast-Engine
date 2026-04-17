@@ -1,30 +1,149 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Button, Badge, Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui";
-import { ArrowRight, Zap } from 'lucide-react';
+import { Button } from "@/components/ui";
+import { ArrowRight, Sparkles, Shield, Zap, Play } from 'lucide-react';
+import { motion } from 'framer-motion';
 
 export default function Hero() {
   return (
-    <section className="flex flex-col items-center text-center mt-20 mb-16 px-4">
-      <Badge variant="outline" className="border-purple-500/50 text-purple-400 gap-2 mb-6">
-        <Zap className="w-3 h-3" /> Marketplace de Skills IA
-      </Badge>
-      
-      <h1 className="text-5xl md:text-6xl font-extrabold tracking-tight max-w-4xl mx-auto mb-6">
-        Agentes IA validados <br /> prontos para integrar
-      </h1>
-      
-      <p className="text-muted-foreground text-lg max-w-2xl mx-auto mb-10">
-        Descubra, valide e integre skills de IA em minutos. Pipeline automatizado com verificação de segurança.
-      </p>
+    <section className="relative overflow-hidden">
+      {/* Blobs animados — roxo esquerda, ciano direita */}
+      <div className="absolute inset-0 -z-10">
+        <div
+          className="absolute top-1/4 left-1/4 w-96 h-96 rounded-full blur-3xl animate-pulse-glow"
+          style={{ background: 'hsl(262 83% 65% / 0.2)' }}
+        />
+        <div
+          className="absolute bottom-1/4 right-1/4 w-96 h-96 rounded-full blur-3xl animate-pulse-glow"
+          style={{ background: 'hsl(199 89% 55% / 0.2)', animationDelay: '1s' }}
+        />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_0%,hsl(222_47%_5%)_70%)]" />
+      </div>
 
-      <div className="flex items-center gap-4">
-        <Button className="bg-purple-600 hover:bg-purple-700 text-white px-8 py-6 rounded-full font-semibold gap-2 shadow-[0_0_20px_rgba(139,92,246,0.3)]">
-          Explorar Skills <ArrowRight className="w-4 h-4" />
-        </Button>
-        <Button variant="outline" className="border-zinc-700 bg-transparent hover:bg-zinc-900 px-8 py-6 rounded-full font-semibold">
-          Ver Documentação
-        </Button>
+      {/* Grid quadriculado */}
+      <div className="absolute inset-0 -z-10 grid-pattern" />
+
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24 lg:py-32">
+        <div className="text-center max-w-4xl mx-auto">
+          {/* Badge */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5 }}
+            className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-primary/10 border border-primary/20 mb-8"
+          >
+            <Sparkles className="w-4 h-4 text-primary" />
+            <span className="text-sm font-medium text-primary">Marketplace de Skills IA</span>
+          </motion.div>
+
+          {/* Headline */}
+          <motion.h1
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.1 }}
+            className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight mb-6"
+          >
+            Agentes IA <span className="gradient-text text-primary">validados</span>
+            <br />prontos para integrar
+          </motion.h1>
+
+          {/* Subheadline */}
+          <motion.p
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.2 }}
+            className="text-lg sm:text-xl text-muted-foreground max-w-2xl mx-auto mb-10"
+          >
+            Descubra, valide e integre skills de IA em minutos.
+            <br />Pipeline automatizado de importação com verificação de segurança por IA.
+          </motion.p>
+
+          {/* CTAs — botão preenchido com gradiente roxo→ciano */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.3 }}
+            className="flex flex-col sm:flex-row items-center justify-center gap-4"
+          >
+            <Link to="/skills">
+              <Button
+                size="lg"
+                className="bg-gradient-to-r from-primary to-accent hover:opacity-90 text-white border-0 gap-2 h-12 px-6 text-base"
+              >
+                Explorar Skills
+                <ArrowRight className="w-4 h-4" />
+              </Button>
+            </Link>
+            <Link to="/docs">
+              <Button variant="outline" size="lg" className="gap-2 h-12 px-6 text-base">
+                <Play className="w-4 h-4" />
+                Ver Documentação
+              </Button>
+            </Link>
+          </motion.div>
+
+          {/* Trust badges */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.4 }}
+            className="flex flex-wrap items-center justify-center gap-6 mt-12 text-muted-foreground"
+          >
+            <div className="flex items-center gap-2">
+              <Shield className="w-5 h-5 text-chart-3" />
+              <span className="text-sm">Validado por IA</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Zap className="w-5 h-5 text-chart-4" />
+              <span className="text-sm">100+ Skills</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-primary" />
+              <span className="text-sm">Auto-curativo</span>
+            </div>
+          </motion.div>
+        </div>
+
+        {/* Terminal — 3 bolinhas coloridas */}
+        <motion.div
+          initial={{ opacity: 0, y: 40 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.7, delay: 0.5 }}
+          className="mt-16 lg:mt-24 max-w-3xl mx-auto"
+        >
+          <div className="rounded-xl border border-border/50 bg-card/50 glass overflow-hidden glow">
+            {/* Barra do terminal com 3 bolinhas */}
+            <div className="flex items-center gap-2 px-4 py-3 border-b border-border/50 bg-secondary/30">
+              <div className="flex gap-1.5">
+                <div className="w-3 h-3 rounded-full bg-red-500/80" />
+                <div className="w-3 h-3 rounded-full bg-yellow-400/80" />
+                <div className="w-3 h-3 rounded-full bg-green-500/80" />
+              </div>
+              <span className="text-xs text-muted-foreground font-mono ml-2">terminal</span>
+            </div>
+
+            {/* Conteúdo do terminal */}
+            <div className="p-4 font-mono text-sm space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="text-chart-3">$</span>
+                <span className="text-muted-foreground">npx aifeast install</span>
+                <span className="text-primary font-bold">onde-revisar</span>
+              </div>
+              <div className="text-muted-foreground/70 mt-2">
+                <span className="text-chart-3">✓</span> Verificando segurança...
+              </div>
+              <div className="text-muted-foreground/70">
+                <span className="text-chart-3">✓</span> Validando schema...
+              </div>
+              <div className="text-muted-foreground/70">
+                <span className="text-chart-3">✓</span> Instalando skill...
+              </div>
+              <div className="mt-2 text-chart-3 font-semibold">
+                ✨ Skill instalada com sucesso!
+              </div>
+            </div>
+          </div>
+        </motion.div>
       </div>
     </section>
   );
