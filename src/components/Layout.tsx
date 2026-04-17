@@ -5,6 +5,7 @@ import { signInWithGoogle } from "../lib/supabaseClient";
 import { motion } from "motion/react";
 import { LayoutDashboard, BookOpen, Shield, LogOut, Globe, Zap, User, Puzzle, Activity, AlertTriangle, Wrench } from "lucide-react";
 import { Button } from "./ui";
+import Footer from "./layout/Footer";
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const { user, profile, loading, signOut } = useAuth();
@@ -139,6 +140,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-[500px] bg-neon-purple/5 blur-[120px] -z-10" />
         {children}
       </main>
+      <Footer />
     </div>
   );
 }
