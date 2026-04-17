@@ -41,11 +41,15 @@ export default function Engine() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [logs, setLogs] = useState<EngineLog[]>([]);
+  const [recentPosts, setRecentPosts] = useState<any[]>([]);
   const [metrics, setMetrics] = useState({
     avgLatency: 0,
     successRate: 0,
-    tokensUsed: 0
+    tokensUsed: 0,
+    tps: 0,
+    estimatedCost: 0
   });
+  const [exportFormat, setExportFormat] = useState('json');
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -77,11 +81,29 @@ export default function Engine() {
       setPendingCount(pending || 0);
       setPublishedCount(published || 0);
       
+      // Fetch real recent posts for the output feed
+      const { data: latest } = await supabase
+        .from('posts')
+        .select('id, title, link, created_at')
+        .eq('status', 'published')
+        .order('created_at', { ascending: false })
+        .limit(5);
+
+      if (latest) {
+        setRecentPosts(latest);
+        // Add current items to log as "LIVE FEED"
+        latest.slice(0, 3).forEach(p => {
+          addLog(`[SUCCESS] Refined: "${p.title}"`, 'success', p.link);
+        });
+      }
+      
       // Fetch some arbitrary metrics for visualization
       setMetrics({
         avgLatency: 1.2,
         successRate: 98.4,
-        tokensUsed: 124502
+        tokensUsed: 124502,
+        tps: 45.2,
+        estimatedCost: 1.48
       });
     } catch (err) {
       console.error("[Engine] Fetch stats error:", err);
@@ -179,13 +201,19 @@ export default function Engine() {
         {/* Pipeline Visualization */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
           
-          {/* Input Layer */}
+          {/* Ingestion Pipeline */}
           <Card className="bg-dark-card/50 border-white/5 relative overflow-hidden group">
             <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
                <Database className="w-24 h-24" />
             </div>
             <div className="p-8">
-              <h3 className="text-sm font-bold text-gray-500 uppercase tracking-widest mb-6">Input Layer</h3>
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-sm font-bold text-gray-500 uppercase tracking-widest">Ingestion Pipeline</h3>
+                <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-green-500/10 border border-green-500/20 text-[10px] text-green-400 font-bold">
+                  <div className="w-1 h-1 rounded-full bg-green-400 animate-pulse" />
+                  API ACTIVE
+                </div>
+              </div>
               <div className="text-4xl font-display font-bold mb-2 flex items-baseline gap-2">
                 {pendingCount}
                 <span className="text-xs text-gray-400 uppercase tracking-tighter">Raw Items</span>
@@ -231,6 +259,9 @@ export default function Engine() {
               <div className="text-lg font-bold mb-1">
                 {isProcessing ? "Gemini 3 Flash" : "Standby"}
               </div>
+              <div className="px-3 py-1 bg-neon-purple/10 border border-neon-purple/20 rounded-md text-[10px] text-neon-purple font-bold mb-2">
+                Active Skill: Content Engine
+              </div>
               <p className="text-[10px] text-gray-400 font-mono">Distilling & Translating</p>
             </div>
           </Card>
@@ -246,7 +277,21 @@ export default function Engine() {
                 {publishedCount}
                 <span className="text-xs text-gray-400 uppercase tracking-tighter">Distilled Posts</span>
               </div>
-              <p className="text-xs text-gray-500 mb-6 font-mono">Status: Ready for distribution</p>
+              
+              {/* Export Selector */}
+              <div className="flex gap-1.5 mb-6 mt-4">
+                 {['JSON', 'WEBHOOK', 'VECTOR'].map(fmt => (
+                   <button 
+                     key={fmt}
+                     onClick={() => setExportFormat(fmt.toLowerCase())}
+                     className={`text-[9px] font-bold px-2 py-1 rounded transition-colors ${
+                       exportFormat === fmt.toLowerCase() ? 'bg-neon-cyan/20 text-neon-cyan border border-neon-cyan/30' : 'bg-white/5 text-gray-500'
+                     }`}
+                   >
+                     {fmt}
+                   </button>
+                 ))}
+              </div>
 
               <div className="flex items-center gap-1.5 font-mono text-[10px] text-green-400">
                  <CheckCircle className="w-3 h-3" />
@@ -295,7 +340,11 @@ export default function Engine() {
                         </span>
                         <span className="flex-1 text-gray-300">
                           {log.message}
-                          {log.details && <div className="mt-1 text-gray-500 opacity-70">{log.details}</div>}
+                          {log.status === 'success' && log.details && (
+                            <a href={log.details} target="_blank" rel="noopener noreferrer" className="ml-2 text-[10px] text-neon-cyan hover:underline inline-flex items-center gap-1">
+                               [Link] <ArrowRight className="w-2 h-2" />
+                            </a>
+                          )}
                         </span>
                      </div>
                    ))}
@@ -313,13 +362,13 @@ export default function Engine() {
                 <div className="space-y-6">
                    <div>
                      <div className="flex justify-between text-xs mb-2">
-                        <span className="text-gray-400">Pipeline Latency</span>
-                        <span className="text-neon-cyan">{metrics.avgLatency}s</span>
+                        <span className="text-gray-400">Tokens per Second</span>
+                        <span className="text-neon-cyan font-bold">{metrics.tps} TPS</span>
                      </div>
                      <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
                         <motion.div 
                           initial={{ width: 0 }}
-                          animate={{ width: '45%' }}
+                          animate={{ width: '65%' }}
                           className="h-full bg-neon-cyan" 
                         />
                      </div>
@@ -327,13 +376,13 @@ export default function Engine() {
 
                    <div>
                      <div className="flex justify-between text-xs mb-2">
-                        <span className="text-gray-400">AI Accuracy</span>
-                        <span className="text-green-400">{metrics.successRate}%</span>
+                        <span className="text-gray-400">Estimated Cost (MTD)</span>
+                        <span className="text-green-400 font-bold">${metrics.estimatedCost} USD</span>
                      </div>
                      <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
                         <motion.div 
                           initial={{ width: 0 }}
-                          animate={{ width: `${metrics.successRate}%` }}
+                          animate={{ width: '25%' }}
                           className="h-full bg-green-400" 
                         />
                      </div>
@@ -349,19 +398,24 @@ export default function Engine() {
              </Card>
 
              <Card className="bg-dark-card border-white/5 p-6 border-t-2 border-t-neon-purple/50">
-                <h3 className="text-xs font-bold text-gray-300 uppercase tracking-widest mb-4">Pipeline Health</h3>
-                <div className="flex items-center gap-4">
-                   <div className="flex-1 flex flex-col items-center p-3 bg-black/40 rounded-xl border border-white/5">
-                      <Activity className="w-5 h-5 text-green-400 mb-1" />
-                      <div className="text-[10px] text-gray-500">Uptime</div>
-                      <div className="text-xs font-bold text-white">99.9%</div>
-                   </div>
-                   <div className="flex-1 flex flex-col items-center p-3 bg-black/40 rounded-xl border border-white/5">
-                      <RefreshCw className="w-5 h-5 text-neon-cyan mb-1" />
-                      <div className="text-[10px] text-gray-500">Auto-Fix</div>
-                      <div className="text-xs font-bold text-white">Enabled</div>
-                   </div>
+                <h3 className="text-xs font-bold text-gray-300 uppercase tracking-widest mb-4">Output Feed</h3>
+                <div className="space-y-2 mb-4 max-h-[160px] overflow-y-auto pr-2 custom-scrollbar">
+                   {recentPosts.map(post => (
+                     <a 
+                       key={post.id} 
+                       href={post.link} 
+                       target="_blank" 
+                       rel="noopener noreferrer"
+                       className="block p-2 bg-black/40 border border-white/5 rounded-lg hover:border-primary/30 transition-all"
+                     >
+                       <p className="text-[10px] text-white truncate font-medium">{post.title}</p>
+                       <p className="text-[8px] text-gray-500 mt-1">{new Date(post.created_at).toLocaleTimeString()}</p>
+                     </a>
+                   ))}
                 </div>
+                <Button variant="outline" size="sm" className="w-full text-[10px] h-8 border-white/10 hover:bg-white/5">
+                   VIEW LATEST
+                </Button>
              </Card>
           </div>
 

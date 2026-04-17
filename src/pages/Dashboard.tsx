@@ -7,12 +7,13 @@ import { Link } from 'react-router-dom';
 import {
   Key, Copy, Eye, EyeOff, RefreshCw, Zap, BarChart3, Activity, Clock,
   CheckCircle, Sparkles, ArrowUpRight, TrendingUp, AlertTriangle, Loader2,
-  ShieldAlert, ExternalLink, Cpu
+  ShieldAlert, ExternalLink, Cpu, Terminal
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../lib/api';
 import { getAuthHeaders } from '../lib/authHeaders';
+import { supabase } from '../lib/supabaseClient';
 
 const RECENT_SKILLS = [
   { id: '1', name: 'Code Reviewer', category: 'development' },
@@ -33,21 +34,35 @@ export default function Dashboard() {
   const [stripeLoading, setStripeLoading] = useState(false);
   const [showRevokeConfirm, setShowRevokeConfirm] = useState(false);
 
-  const usageCount = (profile as any)?.usage_count ?? 47;
-  const usageLimit = (profile as any)?.usage_limit ?? 100;
-  const rateLimitVal = (profile as any)?.rate_limit ?? 10;
+  const [totalPosts, setTotalPosts] = useState(0);
+  const [metrics, setMetrics] = useState({
+    avgLatency: 0,
+    successRate: 0,
+    tokensUsed: 0
+  });
+
+  const usageCount = totalPosts;
+  const usageLimit = (profile as any)?.usage_limit ?? 1000;
+  const rateLimitVal = (profile as any)?.rate_limit ?? 60;
   const plan = profile?.plan ?? 'free';
   const usagePercent = Math.min((usageCount / usageLimit) * 100, 100);
 
-  // Load existing API key
-  const fetchApiKey = useCallback(async () => {
+  // Load existing API key and total posts
+  const fetchData = useCallback(async () => {
     if (!user) { setLoadingKey(false); return; }
     setLoadingKey(true);
     setKeyError(null);
     try {
       const headers = await getAuthHeaders();
-      const res = await api.get('/api/user/api-key', { headers });
-      setApiKey(res.data?.api_key ?? null);
+      
+      // Fetch API Key
+      const keyRes = await api.get('/api/user/api-key', { headers });
+      setApiKey(keyRes.data?.api_key ?? null);
+
+      // Fetch Total Posts for real usage volume
+      const { count } = await supabase.from('posts').select('*', { count: 'exact', head: true });
+      setTotalPosts(count || 0);
+
     } catch (err: any) {
       // 404 means no key yet — not an error
       if (err?.response?.status === 404) {
@@ -60,7 +75,7 @@ export default function Dashboard() {
     }
   }, [user]);
 
-  useEffect(() => { fetchApiKey(); }, [fetchApiKey]);
+  useEffect(() => { fetchData(); }, [fetchData]);
 
   // Generate new API key
   const generateApiKey = async () => {
@@ -322,6 +337,24 @@ export default function Dashboard() {
                   {keyError && (
                     <div className="flex items-center gap-2 text-sm text-red-400">
                       <AlertTriangle className="w-4 h-4" /> {keyError}
+                    </div>
+                  )}
+
+                  {apiKey && (
+                    <div className="mt-6">
+                      <p className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">Quick Integration (cURL)</p>
+                      <div className="bg-[#0D0D0D] border border-white/5 rounded-xl p-4 font-mono text-[11px] relative group">
+                        <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                           <Terminal className="w-3 h-3 text-primary" />
+                        </div>
+                        <div className="text-primary mb-1"># Execute engine pipeline</div>
+                        <div className="text-white break-all leading-relaxed">
+                          <span className="text-accent">curl</span> -X POST https://api.aifeast.com/v1/engine/process \<br />
+                          &nbsp;&nbsp;-H <span className="text-green-400">"Authorization: Bearer {showApiKey ? apiKey : 'YOUR_API_KEY_HERE'}"</span> \<br />
+                          &nbsp;&nbsp;-H <span className="text-green-400">"Content-Type: application/json"</span> \<br />
+                          &nbsp;&nbsp;-d <span className="text-yellow-400">'&lbrace;"input": "raw_content_source"&rbrace;'</span>
+                        </div>
+                      </div>
                     </div>
                   )}
                 </CardContent>
