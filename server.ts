@@ -21,6 +21,7 @@ import publicRouter from "./src/routes/public.js";
 import { startCronJob } from "./src/services/skillScheduler.js";
 import { startMonthlyResetJob } from "./src/services/monthlyReset.js";
 import { startMonitor } from "./src/autonomous/monitor.js";
+import { runIngestion } from "./src/services/ingestionService.js";
 
 // ==========================================
 // SECURITY: Timing-safe string comparison
@@ -411,250 +412,8 @@ app.get("/sitemap.xml", async (req, res) => {
 // ==========================================
 // RSS INGESTION LOOP (REFACTORED)
 // ==========================================
-interface ParseResult {
-  posts: any[];
-  success: boolean;
-  latencyMs: number;
-  error?: string;
-  itemsCount: number;
-}
+// RSS Ingestion Logic is now centrally managed in src/services/ingestionService.ts
 
-async function parseFeed(feed: any, itemsLimit: number): Promise<ParseResult> {
-  const startTime = Date.now();
-  try {
-    const feedData = await parser.parseURL(feed.url);
-    const latencyMs = Date.now() - startTime;
-    const posts = (feedData.items.slice(0, itemsLimit) || []).map(item => ({
-      title: item.title,
-      link: item.link,
-      pub_date: item.pubDate ? new Date(item.pubDate).toISOString() : new Date().toISOString(),
-      content_raw: (item as any).contentEncoded || item.content || item.contentSnippet || "",
-      source_id: feed.id,
-      category: feed.category || "General",
-      status: "pending"
-    }));
-    return { posts, success: true, latencyMs, itemsCount: posts.length };
-  } catch (err: any) {
-    const latencyMs = Date.now() - startTime;
-    const errorMsg = err.message || "Parse failed";
-    
-    // Log error to system_errors table (continue processing other feeds)
-    try {
-      await supabase.from("system_errors").insert({
-        error_type: "RSS_PARSE_ERROR",
-        source: `feed:${feed.id}`,
-        message: errorMsg,
-        severity: "warning",
-        endpoint: feed.url,
-        retry_count: 0,
-        resolved: false,
-        metadata: { feed_name: feed.name, url: feed.url }
-      });
-    } catch (logErr) {
-      console.error(`Failed to log RSS error: ${logErr}`);
-    }
-    
-    // Return empty result (allow other feeds to continue)
-    return { posts: [], success: false, latencyMs, error: errorMsg, itemsCount: 0 };
-  }
-}
-
-function calculateHealthScore(successRate: number, avgLatencyMs: number, lastSuccessAt: Date | null): number {
-  let score = successRate * 50;
-  if (avgLatencyMs < 2000) score += 25;
-  else if (avgLatencyMs < 5000) score += 15;
-  else if (avgLatencyMs < 10000) score += 5;
-
-  if (lastSuccessAt) {
-    const hoursSinceLastSuccess = (Date.now() - lastSuccessAt.getTime()) / (1000 * 60 * 60);
-    if (hoursSinceLastSuccess < 1) score += 25;
-    else if (hoursSinceLastSuccess < 6) score += 15;
-    else if (hoursSinceLastSuccess < 24) score += 5;
-  }
-
-  return Math.min(100, Math.round(score));
-}
-
-async function updateFeedHealth(
-  feedId: string,
-  result: ParseResult,
-  isLastAttempt: boolean = false
-): Promise<void> {
-  try {
-    const healthData: any = {
-      feed_id: feedId,
-      last_latency_ms: result.latencyMs,
-      last_status: result.success ? "success" : "error",
-      last_error: result.error,
-      last_success_at: result.success ? new Date().toISOString() : null,
-      last_checked_at: new Date().toISOString(),
-      items_fetched: result.itemsCount,
-      updated_at: new Date().toISOString()
-    };
-
-    const { data: existing } = await supabase
-      .from("feed_health")
-      .select("*")
-      .eq("feed_id", feedId)
-      .single();
-
-    if (existing) {
-      const newSuccessCount = result.success ? existing.success_count + 1 : existing.success_count;
-      const newErrorCount = result.success ? existing.error_count : existing.error_count + 1;
-      const newTotalLatency = existing.total_latency_ms + result.latencyMs;
-      const newConsecutiveErrors = result.success ? 0 : existing.consecutive_errors + 1;
-
-      const avgLatency = Math.round(newTotalLatency / (newSuccessCount + newErrorCount));
-      const successRate = newSuccessCount / (newSuccessCount + newErrorCount || 1);
-
-      let score = successRate * 50;
-      if (avgLatency < 2000) score += 25;
-      else if (avgLatency < 5000) score += 15;
-      else if (avgLatency < 10000) score += 5;
-      if (newConsecutiveErrors === 0) score += 25;
-
-      healthData.success_count = newSuccessCount;
-      healthData.error_count = newErrorCount;
-      healthData.total_latency_ms = newTotalLatency;
-      healthData.avg_latency_ms = avgLatency;
-      healthData.consecutive_errors = newConsecutiveErrors;
-      healthData.health_score = Math.min(100, Math.round(score));
-    } else {
-      healthData.success_count = result.success ? 1 : 0;
-      healthData.error_count = result.success ? 0 : 1;
-      healthData.total_latency_ms = result.latencyMs;
-      healthData.avg_latency_ms = result.latencyMs;
-      healthData.consecutive_errors = result.success ? 0 : 1;
-      healthData.health_score = result.success ? 75 : 25;
-    }
-
-    await supabase.from("feed_health").upsert(healthData, { onConflict: "feed_id" });
-  } catch (err: any) {
-    console.error(`Failed to update feed health: ${err.message}`);
-  }
-}
-
-async function bulkInsertPosts(posts: any[]): Promise<number> {
-  if (posts.length === 0) return 0;
-  try {
-    const { error } = await supabase.from("posts").insert(posts);
-    if (error) {
-      console.error(`Bulk insert error: ${error.message}`);
-      return 0;
-    }
-    return posts.length;
-  } catch (err: any) {
-    console.error(`Bulk insert exception: ${err.message}`);
-    return 0;
-  }
-}
-
-async function processCategory(
-  category: string,
-  feedsInCategory: any[],
-  existingLinks: Set<string>,
-  itemsPerFeed: number
-): Promise<number> {
-  const parsePromises = feedsInCategory.map(feed => parseFeed(feed, itemsPerFeed));
-  const parseResults = await Promise.allSettled(parsePromises);
-
-  const newPosts: any[] = [];
-  for (let i = 0; i < parseResults.length; i++) {
-    const result = parseResults[i];
-    if (result.status === "fulfilled") {
-      const parseResult = result.value as ParseResult;
-      const feed = feedsInCategory[i];
-      if (feed?.id) await updateFeedHealth(feed.id, parseResult, true);
-
-      for (const item of parseResult.posts) {
-        if (!existingLinks.has(item.link)) {
-          existingLinks.add(item.link);
-          newPosts.push(item);
-        }
-      }
-    }
-  }
-
-  if (newPosts.length > 0) {
-    return bulkInsertPosts(newPosts);
-  }
-  return 0;
-}
-
-async function runIngestion() {
-  console.log(">>> [RSS] Starting Ingestion at " + new Date().toISOString());
-  try {
-    const [{ data: feeds }, { data: healthData }, { data: existingPosts }, { data: categoryStats }] = await Promise.all([
-      supabase.from("feeds").select("*"),
-      supabase.from("feed_health").select("feed_id, last_checked_at"),
-      supabase.from("posts").select("link"),
-      supabase.from("posts").select("category, status").eq("status", "published")
-    ]);
-    if (!feeds) return;
-
-    // Build health lookup for cache check
-    const healthMap = new Map<string, any>();
-    healthData?.forEach((h: any) => healthMap.set(h.feed_id, h));
-
-    // Filter feeds to process (skip if checked within 15min)
-    const feedsToProcess = feeds.filter((f: any) => shouldScanFeed(healthMap.get(f.id)?.last_checked_at));
-    
-    if (feedsToProcess.length === 0) {
-      console.log(`>>> [RSS] All feeds cached, skipping.`);
-      return;
-    }
-
-    const existingLinks = new Set((existingPosts || []).map((p: any) => p.link));
-    console.log(`>>> [RSS] Processing ${feedsToProcess.length}/${feeds.length} feeds (cache applied)`);
-
-    const categoryCounts: Record<string, number> = {};
-    (categoryStats || []).forEach((p: any) => {
-      const cat = (p.category || "General").toLowerCase();
-      categoryCounts[cat] = (categoryCounts[cat] || 0) + 1;
-    });
-
-    const feedsByCategory: Record<string, any[]> = {};
-    feedsToProcess.forEach((f: any) => {
-      const cat = f.category || "General";
-      if (!feedsByCategory[cat]) feedsByCategory[cat] = [];
-      feedsByCategory[cat].push(f);
-    });
-
-    const MAX_POSTS_PER_CATEGORY = 200;
-    const MIN_POSTS_PER_CATEGORY = 30;
-
-    const categoriesToProcess = Object.keys(feedsByCategory).filter(cat => {
-      const count = categoryCounts[cat] || 0;
-      return count < MAX_POSTS_PER_CATEGORY;
-    }).sort((a, b) => (categoryCounts[a] || 0) - (categoryCounts[b] || 0));
-
-    const categoryTasks = categoriesToProcess.map(category => {
-      const currentCount = categoryCounts[category] || 0;
-      let itemsPerFeed = 5;
-      if (currentCount < MIN_POSTS_PER_CATEGORY) itemsPerFeed = 15;
-      else if (currentCount > MAX_POSTS_PER_CATEGORY * 0.75) itemsPerFeed = 2;
-
-      return processCategory(
-        category,
-        feedsByCategory[category] || [],
-        existingLinks,
-        itemsPerFeed
-      );
-    });
-
-    const results = await Promise.allSettled(categoryTasks);
-    const totalInserted = results.reduce((sum, r) => sum + (r.status === "fulfilled" ? r.value : 0), 0);
-
-    console.log(`>>> [RSS] Ingestion complete. Total: ${totalInserted} posts`);
-  } catch (err: any) { console.error("Ingestion Loop Error:", err.message); }
-}
-
-// Check if feed should be processed based on last_scan (15min cache)
-function shouldScanFeed(lastCheckedAt: string | null): boolean {
-  if (!lastCheckedAt) return true;
-  const FIFTEEN_MINUTES = 15 * 60 * 1000;
-  return (Date.now() - new Date(lastCheckedAt).getTime()) > FIFTEEN_MINUTES;
-}
 
 // Heartbeat
 setInterval(async () => {
@@ -664,8 +423,12 @@ setInterval(async () => {
       supabase.from("posts").select("*", { count: "exact", head: true }).eq("status", "published")
     ]);
     console.log(`>>> [Heartbeat] ${new Date().toISOString()} | Published: ${publishedCount} | Pending: ${pendingCount}`);
+    
+    // Auto-ingest if published items are low (optional, but keep it active)
+    if (publishedCount < 100) runIngestion();
+    
   } catch (err: any) { console.error(`>>> [Heartbeat] Error: ${err.message}`); }
-}, 5*60*1000);
+}, 10*60*1000);
 
 // AutoQueue
 console.log(">>> [AutoQueue] Starting interval...");

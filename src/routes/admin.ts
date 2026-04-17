@@ -2,6 +2,7 @@ import { Router, Request, Response } from "express";
 import { supabase } from "../lib/supabaseClient.js";
 import { checkAdmin } from "../middleware/auth.js";
 import { queueService } from "../services/queueService.js";
+import { runIngestion } from "../services/ingestionService.js";
 import { logAuditAction } from "../middleware/auditLog.js";
 import rateLimit from "express-rate-limit";
 import { execSync } from "child_process";
@@ -54,6 +55,17 @@ router.post("/process-batch", checkAdmin, async (req, res) => {
   queueService.addTasks(pending.map(p => p.id));
   logAuditAction((req as any).user.id, "PROCESS_BATCH_MANUAL", req, { count: pending.length });
   res.json({ message: `Queueing ${pending.length} posts` });
+});
+
+// POST /api/admin/ingest - Manual RSS sync
+router.post("/ingest", checkAdmin, async (req, res) => {
+  try {
+    const count = await runIngestion();
+    logAuditAction((req as any).user.id, "MANUAL_INGESTION", req, { count });
+    res.json({ message: `Ingestion complete. Found ${count} new items.`, count });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // POST /api/admin/feeds

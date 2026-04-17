@@ -231,7 +231,25 @@ export default function Dashboard() {
                     <Key className="w-5 h-5 text-primary" />
                     API Key
                   </CardTitle>
-                  <CardDescription>Use this key to authenticate your API requests</CardDescription>
+                  <CardDescription className="space-y-4">
+                    <p>Use this key to authenticate your API requests.</p>
+                    
+                    {/* cURL Console immediately under description */}
+                    <div className="mt-2">
+                      <div className="bg-[#0D0D0D] border border-white/5 rounded-xl p-4 font-mono text-[11px] relative group">
+                        <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                           <Terminal className="w-3 h-3 text-primary" />
+                        </div>
+                        <div className="text-primary/70 mb-1"># Execute engine pipeline</div>
+                        <div className="text-white/90 break-all leading-relaxed">
+                          <span className="text-accent">curl</span> -X POST https://api.aifeast.com/v1/engine/process \<br />
+                          &nbsp;&nbsp;-H <span className="text-green-400">"Authorization: Bearer {showApiKey ? (apiKey || 'YOUR_API_KEY') : '••••••••••••••••••••••••••••••••••••'}"</span> \<br />
+                          &nbsp;&nbsp;-H <span className="text-green-400">"Content-Type: application/json"</span> \<br />
+                          &nbsp;&nbsp;-d <span className="text-yellow-400">'&lbrace;"input": "raw_content_source"&rbrace;'</span>
+                        </div>
+                      </div>
+                    </div>
+                  </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {loadingKey ? (
@@ -337,24 +355,6 @@ export default function Dashboard() {
                   {keyError && (
                     <div className="flex items-center gap-2 text-sm text-red-400">
                       <AlertTriangle className="w-4 h-4" /> {keyError}
-                    </div>
-                  )}
-
-                  {apiKey && (
-                    <div className="mt-6">
-                      <p className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">Quick Integration (cURL)</p>
-                      <div className="bg-[#0D0D0D] border border-white/5 rounded-xl p-4 font-mono text-[11px] relative group">
-                        <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity">
-                           <Terminal className="w-3 h-3 text-primary" />
-                        </div>
-                        <div className="text-primary mb-1"># Execute engine pipeline</div>
-                        <div className="text-white break-all leading-relaxed">
-                          <span className="text-accent">curl</span> -X POST https://api.aifeast.com/v1/engine/process \<br />
-                          &nbsp;&nbsp;-H <span className="text-green-400">"Authorization: Bearer {showApiKey ? apiKey : 'YOUR_API_KEY_HERE'}"</span> \<br />
-                          &nbsp;&nbsp;-H <span className="text-green-400">"Content-Type: application/json"</span> \<br />
-                          &nbsp;&nbsp;-d <span className="text-yellow-400">'&lbrace;"input": "raw_content_source"&rbrace;'</span>
-                        </div>
-                      </div>
                     </div>
                   )}
                 </CardContent>

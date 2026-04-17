@@ -124,22 +124,46 @@ export default function Engine() {
   };
 
   async function handleStartEngine() {
-    if (isProcessing || pendingCount === 0) return;
+    if (isProcessing) return;
     
     setIsProcessing(true);
-    addLog("Initializing AI Content Factory pipeline...", "info");
+    let currentPending = pendingCount;
+
+    if (currentPending === 0) {
+      addLog("Pipeline empty. Attempting auto-ingestion...", "info");
+      try {
+        const ingestRes = await api.post("/api/admin/ingest");
+        addLog(ingestRes.data.message, "success");
+        // Refetch to get new count
+        const { count } = await supabase.from('posts').select('*', { count: 'exact', head: true }).eq('status', 'pending');
+        currentPending = count || 0;
+        setPendingCount(currentPending);
+      } catch (err: any) {
+        addLog("Auto-ingestion failed: " + err.message, "error");
+        setIsProcessing(false);
+        return;
+      }
+    }
+
+    if (currentPending === 0) {
+      addLog("No new items found. Ingestion cycle complete.", "info");
+      setIsProcessing(false);
+      return;
+    }
+
+    addLog(`Initializing AI Content Factory for ${currentPending} items...`, "info");
     
     try {
-      addLog(`Preparing batch processing for ${Math.min(pendingCount, 5)} items`, "processing");
+      addLog(`Preparing batch processing...`, "processing");
       
       // Call the batch process API
       const res = await api.post("/api/admin/process-batch");
       
       addLog("Gemini AI connection established...", "info");
-      addLog("Distilling raw RSS data into structured knowledge...", "processing");
+      addLog("Distilling raw data into structured knowledge...", "processing");
       
-      if (res.data.processed > 0) {
-        addLog(`Successfully processed ${res.data.processed} items!`, "success");
+      if (res.data.processed > 0 || res.data.message.includes("Queueing")) {
+        addLog(`Successfully queued ${currentPending} items!`, "success");
       } else {
         addLog("No items were processed. Check system logs.", "error");
       }
@@ -189,7 +213,7 @@ export default function Engine() {
                 variant="primary"
                 size="lg"
                 onClick={handleStartEngine}
-                disabled={isProcessing || pendingCount === 0}
+                disabled={isProcessing}
                 className="bg-gradient-to-r from-neon-purple to-neon-cyan neon-glow-purple border-0 px-8 h-14 rounded-2xl gap-3 text-base font-bold"
              >
                 {isProcessing ? <Loader2 className="w-5 h-5 animate-spin" /> : <CloudLightning className="w-5 h-5" />}
@@ -209,9 +233,31 @@ export default function Engine() {
             <div className="p-8">
               <div className="flex items-center justify-between mb-6">
                 <h3 className="text-sm font-bold text-gray-500 uppercase tracking-widest">Ingestion Pipeline</h3>
-                <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-green-500/10 border border-green-500/20 text-[10px] text-green-400 font-bold">
-                  <div className="w-1 h-1 rounded-full bg-green-400 animate-pulse" />
-                  API ACTIVE
+                <div className="flex items-center gap-3">
+                  <button 
+                    onClick={async () => {
+                      setIsProcessing(true);
+                      addLog("Manual RSS Sync triggered...", "info");
+                      try {
+                        const res = await api.post("/api/admin/ingest");
+                        addLog(res.data.message, "success");
+                        fetchStats();
+                      } catch (err: any) {
+                        addLog("Sync failed: " + err.message, "error");
+                      } finally {
+                        setIsProcessing(false);
+                      }
+                    }}
+                    disabled={isProcessing}
+                    className="p-1.5 hover:bg-white/5 rounded-lg transition-colors text-white/40 hover:text-neon-cyan"
+                    title="Sync Feeds Now"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isProcessing ? 'animate-spin' : ''}`} />
+                  </button>
+                  <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-green-500/10 border border-green-500/20 text-[10px] text-green-400 font-bold">
+                    <div className="w-1 h-1 rounded-full bg-green-400 animate-pulse" />
+                    API ACTIVE
+                  </div>
                 </div>
               </div>
               <div className="text-4xl font-display font-bold mb-2 flex items-baseline gap-2">
