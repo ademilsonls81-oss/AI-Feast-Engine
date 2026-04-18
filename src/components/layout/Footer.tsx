@@ -37,8 +37,8 @@ export default function Footer() {
             <h4 className="text-sm font-semibold mb-4 text-white">Resources</h4>
             <ul className="space-y-3">
               <li><Link to="/status" className="text-sm text-muted-foreground hover:text-white transition-colors">Status</Link></li>
-              <li><a href="#" className="text-sm text-muted-foreground hover:text-white transition-colors">Blog</a></li>
-              <li><a href="#" className="text-sm text-muted-foreground hover:text-white transition-colors">Changelog</a></li>
+              <li><Link to="/blog" className="text-sm text-muted-foreground hover:text-white transition-colors">Blog</Link></li>
+              <li><Link to="/changelog" className="text-sm text-muted-foreground hover:text-white transition-colors">Changelog</Link></li>
             </ul>
           </div>
 
@@ -58,10 +58,10 @@ export default function Footer() {
             © 2026 AI Feast Engine. All rights reserved.
           </p>
           <div className="flex items-center gap-4">
-            <a href="https://github.com" target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-foreground transition-colors">
+            <a href="https://github.com/ademilsonls81-oss/AI-Feast-Engine" target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-foreground transition-colors" title="GitHub">
               <Github className="w-5 h-5" />
             </a>
-            <a href="https://twitter.com" target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-foreground transition-colors">
+            <a href="https://x.com/aifeast_engine" target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-foreground transition-colors" title="Twitter / X">
               <Twitter className="w-5 h-5" />
             </a>
           </div>

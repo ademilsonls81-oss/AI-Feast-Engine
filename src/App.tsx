@@ -17,6 +17,8 @@ import Valide from "./pages/Valide";
 import Engine from "./pages/Engine";
 import Backups from "./pages/admin/Backups";
 import AuditLogs from "./pages/admin/AuditLogs";
+import Blog from "./pages/Blog";
+import Changelog from "./pages/Changelog";
 import ErrorBoundary from "./components/ErrorBoundary";
 
 export default function App() {
@@ -66,6 +68,12 @@ export default function App() {
             <Route path="/terms" element={<Terms />} />
             <Route path="/status" element={
               <ErrorBoundary context="Status"><Status /></ErrorBoundary>
+            } />
+            <Route path="/blog" element={
+              <ErrorBoundary context="Blog"><Blog /></ErrorBoundary>
+            } />
+            <Route path="/changelog" element={
+              <ErrorBoundary context="Changelog"><Changelog /></ErrorBoundary>
             } />
             <Route path="*" element={
               <ErrorBoundary context="NotFound"><NotFound /></ErrorBoundary>
