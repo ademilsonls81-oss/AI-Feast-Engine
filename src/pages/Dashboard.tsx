@@ -9,7 +9,7 @@ import {
   CheckCircle, Sparkles, ArrowUpRight, TrendingUp, AlertTriangle, Loader2,
   ShieldAlert, ExternalLink, Cpu, Terminal
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../lib/api';
 import { getAuthHeaders } from '../lib/authHeaders';

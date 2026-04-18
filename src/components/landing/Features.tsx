@@ -1,4 +1,4 @@
-import { motion } from 'motion/react';
+import { motion } from 'framer-motion';
 import { Shield, Zap, RefreshCw, GitBranch, Search, BarChart3 } from 'lucide-react';
 
 const features = [

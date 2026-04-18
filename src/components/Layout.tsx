@@ -2,7 +2,7 @@ import React from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { signInWithGoogle } from "../lib/supabaseClient";
-import { motion } from "motion/react";
+import { motion } from "framer-motion";
 import { LayoutDashboard, Shield, LogOut, Zap, User, Puzzle, Activity, AlertTriangle, Wrench, Database, ListChecks, Cpu, Factory } from "lucide-react";
 import { Button } from "./ui";
 import Footer from "./layout/Footer";

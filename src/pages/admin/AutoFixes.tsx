@@ -8,7 +8,7 @@
 import React, { useEffect, useState } from "react";
 import { useAuth } from "../../contexts/AuthContext";
 import { supabase } from "../../lib/supabaseClient";
-import { motion } from "motion/react";
+import { motion } from "framer-motion";
 import { 
   CheckCircle, XCircle, Clock, RefreshCw, Zap, GitCommit, 
   Play, AlertCircle, Terminal, Rocket, Brain 

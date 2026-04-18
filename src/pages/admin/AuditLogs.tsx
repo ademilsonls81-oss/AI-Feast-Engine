@@ -10,7 +10,7 @@ import { useAuth } from "../../contexts/AuthContext";
 import { supabase } from "../../lib/supabaseClient";
 import api from "../../lib/api";
 import { getAuthHeaders } from "../../lib/authHeaders";
-import { motion } from "motion/react";
+import { motion } from "framer-motion";
 import { Shield, Search, RefreshCw, User, Terminal, Globe, Calendar, Info, Clock, AlertCircle } from "lucide-react";
 import { Badge, EmptyState, Spinner } from "../../components/ui";
 

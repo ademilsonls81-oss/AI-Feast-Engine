@@ -1,5 +1,5 @@
 import React from "react";
-import { motion } from "motion/react";
+import { motion } from "framer-motion";
 import { Copy, Terminal, Globe, Key, AlertCircle, CheckCircle2, ChevronRight, Database, Search, BarChart3, Puzzle, Check } from "lucide-react";
 import { cn } from "../lib/utils";
 import { Badge, Card } from "../components/ui";

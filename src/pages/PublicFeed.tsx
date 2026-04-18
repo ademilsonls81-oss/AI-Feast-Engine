@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { motion } from "motion/react";
+import { motion } from "framer-motion";
 import { supabase } from "../lib/supabaseClient";
 import { Post } from "../types";
 import { Globe, Clock, ChevronRight, Search } from "lucide-react";

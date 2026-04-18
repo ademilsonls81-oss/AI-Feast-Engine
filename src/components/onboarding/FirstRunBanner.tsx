@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { motion, AnimatePresence } from "motion/react";
+import { motion, AnimatePresence } from "framer-motion";
 import { Zap, X, ChevronRight, BookOpen } from "lucide-react";
 
 interface FirstRunBannerProps {

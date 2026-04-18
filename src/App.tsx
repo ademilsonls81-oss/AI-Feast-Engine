@@ -22,6 +22,7 @@ import Changelog from "./pages/Changelog";
 import ErrorBoundary from "./components/ErrorBoundary";
 
 export default function App() {
+
   return (
     <BrowserRouter>
       <Layout>
