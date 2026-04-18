@@ -203,8 +203,12 @@ export default function Engine() {
             <h1 className="text-4xl md:text-5xl font-display font-bold">
               Content <span className="text-transparent bg-clip-text bg-gradient-to-r from-neon-purple to-neon-cyan">Factory</span>
             </h1>
-            <p className="text-gray-400 mt-2 max-w-xl">
-              Transforming raw data into distilled knowledge using the Gemini AI pipeline.
+            <p className="text-gray-400 mt-2 max-w-xl text-sm leading-relaxed">
+              Transforming raw data into distilled knowledge using the Gemini AI pipeline. 
+              <br />
+              <span className="text-neon-cyan/80 text-[10px] uppercase font-bold tracking-tighter mt-1 block italic">
+                * Start Factory: Automatically syncs RSS feeds and triggers AI batch distillation.
+              </span>
             </p>
           </div>
 

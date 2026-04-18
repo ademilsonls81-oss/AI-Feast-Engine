@@ -118,12 +118,13 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                     <div className="w-px h-4 bg-white/10 mx-1" />
                     <Link
                       to="/admin"
-                      className={`p-2 rounded-lg transition-all ${
-                        isActive("/admin") ? "text-neon-cyan bg-neon-cyan/10" : "text-gray-500 hover:text-gray-300"
+                      className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold transition-all ${
+                        isActive("/admin") ? "text-neon-cyan bg-neon-cyan/10" : "text-gray-400 hover:text-white hover:bg-white/5"
                       }`}
                       title="Admin Panel"
                     >
                       <Shield className="w-4 h-4" />
+                      Panel
                     </Link>
                   </div>
                 )}
