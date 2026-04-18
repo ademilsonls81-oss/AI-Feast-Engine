@@ -53,7 +53,7 @@ vi.mock("../src/autonomous/fixer.js", () => ({
 }));
 
 // Import after mocking
-import { supabase } from "../src/lib/supabase.js";
+import { supabase } from "../src/lib/supabaseClient.js";
 import { runAutonomousLoop, triggerAutonomousLoop, isLoopActive, getLoopStatus } from "../src/autonomous/loop.js";
 
 // Access internal state for testing

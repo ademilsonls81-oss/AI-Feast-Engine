@@ -12,7 +12,7 @@
 import fs from "fs/promises";
 import fsSync from "fs";
 import path from "path";
-import { supabase } from "../src/lib/supabase.js";
+import { supabase } from "../src/lib/supabaseClient.js";
 import { logError } from "../src/autonomous/errorLogger.js";
 import { runDiagnosis } from "../src/autonomous/diagnostician.js";
 import { fullRiskPipeline } from "../src/autonomous/riskAnalyzer.js";

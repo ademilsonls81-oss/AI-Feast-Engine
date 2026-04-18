@@ -3,7 +3,7 @@
  * Queries Supabase directly to verify the fix
  */
 
-import { supabase } from '../src/lib/supabase.js';
+import { supabase } from '../src/lib/supabaseClient.js';
 
 async function checkUserUpgrade() {
   const userId = '133c94ea-5943-481c-b7d0-a7a5e429d01f';
