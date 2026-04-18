@@ -162,10 +162,12 @@ export default function Admin() {
 
     if (data?.role === 'admin') {
       setIsAdmin(true);
+      setIsLoading(false); // FIX: parar loading quando admin verificado
       console.log("✅ Admin access granted");
       // Carregar estado do kill switch
       fetchAutonomousStatus();
     } else {
+      setIsLoading(false); // FIX: parar loading mesmo se não for admin
       console.log("❌ Access denied: role is", data?.role);
     }
   }
