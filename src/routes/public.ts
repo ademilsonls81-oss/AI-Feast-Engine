@@ -1,6 +1,9 @@
 import { Router, Request, Response } from "express";
-import { supabase } from "../lib/supabaseClient";
+import { supabaseAdmin as supabase } from "../lib/supabaseAdmin.js";
 import { apiKeyRateLimit } from "../middleware/rateLimit.js";
+import Parser from "rss-parser";
+
+const parser = new Parser({ customFields: { item: [["content:encoded", "contentEncoded"]] } });
 
 const router = Router();
 
@@ -122,6 +125,108 @@ router.get("/feed", apiKeyRateLimit, async (req, res) => {
   const result = { total: count || 0, limit: limitNum, offset: offsetNum, posts: filteredPosts, has_more: (offsetNum + limitNum) < (count || 0), user_plan: user.plan, remaining_requests: user.plan === "free" ? Math.max(0, 100 - user.usage_count) : "unlimited" };
   cacheSet(cacheKey, result, CACHE_TTL.feed);
   res.json(result);
+});
+
+// ==========================================
+// PUBLIC INGESTION - para admins inserirem artigos manualmente
+// ==========================================
+router.post("/ingest", async (req, res) => {
+  const limit = Number(req.query.limit) || 100;
+  const limitNum = Math.min(limit, 5000);
+  
+  try {
+// Get feeds - try feeds table, if empty add default feeds
+    let { data: feeds, error: feedsError } = await supabase.from("feeds").select("*");
+    if (feedsError) {
+      console.log("[Ingest] Feeds error:", feedsError.message);
+    }
+    
+    // If no feeds, add default feeds
+    if (!feeds?.length || feeds.length < 5) {
+      const defaultFeeds = [
+        { name: 'BBC News', url: 'http://feeds.bbci.co.uk/news/rss.xml', category: 'news' },
+        { name: 'NASA', url: 'https://www.nasa.gov/rss/dylasearch.rss', category: 'science' },
+        { name: 'Wired', url: 'https://www.wired.com/feed/rss', category: 'tech' },
+        { name: 'The Verge', url: 'https://www.theverge.com/rss/index.xml', category: 'tech' },
+        { name: 'Hacker News', url: 'https://news.ycombinator.com/rss', category: 'tech' },
+        { name: 'Science Daily', url: 'https://www.sciencedaily.com/rss/all.xml', category: 'science' },
+        { name: 'MIT Tech', url: 'https://www.technologyreview.com/feed/', category: 'tech' },
+        { name: 'Engadget', url: 'https://www.engadget.com/rss.xml', category: 'tech' }
+      ];
+      for (const feed of defaultFeeds) {
+        await supabase.from("feeds").upsert(feed, { onConflict: 'url' });
+      }
+      console.log("[Ingest] Added default feeds");
+      ({ data: feeds } = await supabase.from("feeds").select("*"));
+    }
+    
+    if (!feeds?.length) return res.json({ message: "No feeds configured", inserted: 0 });
+    
+    let totalInserted = 0;
+    const insertedLinks: string[] = [];
+    
+for (const feed of feeds) {
+      try {
+        console.log(`[Ingest] Parsing feed: ${feed.name} - ${feed.url}`);
+        const feedData = await parser.parseURL(feed.url);
+        const items = feedData.items || [];
+        console.log(`[Ingest] Found ${items.length} items in ${feed.name}`);
+        
+        const itemsToInsert = items.slice(0, Math.ceil(limitNum / feeds.length));
+        
+        for (const item of itemsToInsert) {
+          if (!item?.title || !item?.link) continue;
+
+          const cleanContent = (item.content || item.contentSnippet || item.contentEncoded || "").replace(/<[^>]*>/g, "").trim();
+
+          const { error: insertError } = await supabase.from("posts").insert({
+            title: item.title,
+            link: item.link,
+            pub_date: item.pubDate ? new Date(item.pubDate).toISOString() : new Date().toISOString(),
+            content_raw: cleanContent || item.title,
+            source_id: feed.id,
+            category: feed.category || "General",
+            status: "pending"
+          });
+
+          if (!insertError) {
+            totalInserted++;
+            if (totalInserted <= 10) insertedLinks.push(item.title);
+          }
+        }
+      } catch (feedError) {
+        console.log(`[Ingest] Feed error: ${feed.name} - ${feedError.message}`);
+      }
+    }
+    
+    res.json({ message: `Ingestion complete`, inserted: totalInserted, titles: insertedLinks.slice(0, 10) });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ==========================================
+// SYSTEM METRICS - para monitoramento de custos
+// ==========================================
+router.get("/metrics", async (_req, res) => {
+  const { count: postsCount } = await supabase.from("posts").select("*", { count: "exact", head: true });
+  const { count: feedsCount } = await supabase.from("feeds").select("*", { count: "exact", head: true });
+  const { count: usersCount } = await supabase.from("users").select("*", { count: "exact", head: true });
+  
+  res.json({
+    supabase: {
+      posts: postsCount || 0,
+      feeds: feedsCount || 0,
+      users: usersCount || 0,
+      storage_estimate_mb: Math.round((postsCount || 0) * 0.005),
+      storage_limit_mb: 500,
+      storage_percent: Math.round(((postsCount || 0) * 0.005 / 500) * 100)
+    },
+    vercel: { status: "proxy_active", note: "Check vercel dashboard for actual usage" },
+    render: { status: "unknown", note: "Check render dashboard for actual usage" },
+    groq: { note: "Check OpenRouter/Groq dashboard for actual usage" },
+    timestamp: new Date().toISOString()
+  });
 });
 
 // ==========================================

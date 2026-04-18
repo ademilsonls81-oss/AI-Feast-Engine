@@ -87,6 +87,14 @@ export default function Admin() {
   // Session status state
   const [sessionExpired, setSessionExpired] = useState(false);
 
+  // Ingestion state
+  const [ingestLimit, setIngestLimit] = useState(100);
+  const [isIngesting, setIsIngesting] = useState(false);
+  const [ingestResult, setIngestResult] = useState<any>(null);
+
+  // Metrics state
+  const [metrics, setMetrics] = useState<any>(null);
+
   // refs para evitar race conditions
   const isMountedRef = useRef(false);
   const importOperationId = useRef<number>(0);
@@ -227,6 +235,7 @@ export default function Admin() {
     fetchFeeds();
     fetchSkills();
     fetchImportLogs();
+    fetchMetrics();
 
     // Feeds subscription
     const feedsSub = supabase
@@ -484,6 +493,28 @@ export default function Admin() {
       alert("Error starting batch: " + err.message);
     } finally {
       setIsProcessing(false);
+    }
+  };
+
+  const handleIngest = async () => {
+    setIsIngesting(true);
+    setIngestResult(null);
+    try {
+      const res = await api.post("/api/ingest", { limit: ingestLimit });
+      setIngestResult(res.data);
+    } catch (err: any) {
+      alert("Ingestion error: " + err.message);
+    } finally {
+      setIsIngesting(false);
+    }
+  };
+
+  const fetchMetrics = async () => {
+    try {
+      const res = await api.get("/api/metrics");
+      setMetrics(res.data);
+    } catch (err) {
+      console.log("Metrics error:", err);
     }
   };
 
@@ -868,10 +899,91 @@ export default function Admin() {
             </div>
           )}
 
+          {/* System Metrics */}
+          <div className="p-8 bg-dark-card border border-white/10 rounded-3xl mb-6">
+          <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
+            <Activity className="w-5 h-5 text-neon-cyan" /> System Metrics
+          </h2>
+          
+          {metrics && (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="p-4 bg-black/30 rounded-xl">
+                <div className="text-xs text-gray-400 uppercase mb-1">Supabase Storage</div>
+                <div className="text-2xl font-bold text-neon-purple">{metrics.supabase?.storage_percent || 0}%</div>
+                <div className="text-[10px] text-gray-500">{metrics.supabase?.posts || 0} posts / 500MB</div>
+                <div className="w-full bg-black/50 h-1.5 rounded-full mt-2 overflow-hidden">
+                  <div className="h-full bg-neon-purple rounded-full" style={{ width: `${metrics.supabase?.storage_percent || 0}%` }} />
+                </div>
+              </div>
+              <div className="p-4 bg-black/30 rounded-xl">
+                <div className="text-xs text-gray-400 uppercase mb-1">Supabase Feeds</div>
+                <div className="text-2xl font-bold text-neon-cyan">{metrics.supabase?.feeds || 0}</div>
+                <div className="text-[10px] text-gray-500">feeds configured</div>
+              </div>
+              <div className="p-4 bg-black/30 rounded-xl">
+                <div className="text-xs text-gray-400 uppercase mb-1">Vercel</div>
+                <div className="text-2xl font-bold text-green-400">Active</div>
+                <div className="text-[10px] text-gray-500">proxy redirect</div>
+              </div>
+              <div className="p-4 bg-black/30 rounded-xl">
+                <div className="text-xs text-gray-400 uppercase mb-1">Groq/OpenRouter</div>
+                <div className="text-2xl font-bold text-yellow-400">Pay-per-use</div>
+                <div className="text-[10px] text-gray-500">check dashboard</div>
+              </div>
+            </div>
+          )}
+          <button onClick={fetchMetrics} className="text-xs text-gray-500 mt-4 hover:text-white">↻ Refresh</button>
+          </div>
+
+          {/* Data Ingestion Control */}
+          <div className="p-8 bg-dark-card border border-white/10 rounded-3xl mb-6">
+          <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
+            <Database className="w-5 h-5 text-neon-green" /> Data Ingestion
+          </h2>
+          
+          <div className="p-6 bg-neon-green/5 border border-neon-green/20 rounded-2xl">
+            <div className="flex flex-col md:flex-row items-center gap-4 mb-4">
+              <select 
+                value={ingestLimit}
+                onChange={(e) => setIngestLimit(Number(e.target.value))}
+                className="px-4 py-2 bg-black/50 border border-white/20 rounded-xl text-white"
+              >
+                <option value={100}>100 artigos</option>
+                <option value={500}>500 artigos</option>
+                <option value={1000}>1.000 artigos</option>
+                <option value={5000}>5.000 artigos</option>
+              </select>
+              <Button
+                loading={isIngesting}
+                onClick={handleIngest}
+                className="px-6 py-3"
+              >
+                {isIngesting ? "Ingesting..." : `START INGESTION (${ingestLimit})`}
+              </Button>
+            </div>
+            {ingestResult && (
+              <div className="p-4 bg-black/30 rounded-xl">
+                <div className="text-green-400 font-bold">✓ {ingestResult.message}</div>
+                <div className="text-sm text-gray-400">Artigos inseridos: {ingestResult.inserted}</div>
+                {ingestResult.titles?.length > 0 && (
+                  <ul className="mt-2 space-y-1">
+                    {ingestResult.titles.map((t: string, i: number) => (
+                      <li key={i} className="text-xs text-gray-500 truncate">• {t}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+            <p className="text-[10px] text-gray-500 italic mt-2">
+              * Ingestão gratuita via RSS - Não consome credits de API.
+            </p>
+          </div>
+          </div>
+
           {/* AI Processing Control */}
           <div className="p-8 bg-dark-card border border-white/10 rounded-3xl">
           <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
-            <Activity className="w-5 h-5 text-neon-cyan" /> AI Processing Control
+            <Activity className="w-5 h-5 text-neon-cyan" /> AI Processing Control (Premium)
           </h2>
           
           <div className="p-6 bg-neon-purple/5 border border-neon-purple/20 rounded-2xl mb-8">

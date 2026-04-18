@@ -2,7 +2,7 @@ import rateLimit from "express-rate-limit";
 import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(
-  process.env.VITE_SUPABASE_URL || "",
+  process.env.SUPABASE_URL || "",
   process.env.SUPABASE_SERVICE_ROLE_KEY || ""
 );
 
@@ -14,7 +14,8 @@ function getIp(req: Request): string {
 
 export const globalIpLimit = rateLimit({
   windowMs: 60 * 1000,
-  max: Number(process.env.GLOBAL_RATE_LIMIT) || 100,
+  max: 500,
+  skip: (req) => req.path === "/api/ingest" || req.path === "/api/metrics",
   message: { 
     error: "Too many requests from this IP",
     code: 429 
