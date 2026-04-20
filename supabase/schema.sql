@@ -40,10 +40,17 @@ CREATE TABLE public.posts (
   summary TEXT,
   translations JSONB,
   source_id UUID REFERENCES public.feeds(id),
-  category TEXT DEFAULT 'General',
+  category TEXT DEFAULT 'Geral',
+  tags JSONB DEFAULT '[]',
+  sentiment TEXT DEFAULT 'Neutro',
+  original_source TEXT,
+  timestamp TIMESTAMP WITH TIME ZONE,
+  retry_count INTEGER DEFAULT 0,
   status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'published', 'error')),
   error_message TEXT,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+  content_raw TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Index for status to speed up queries
@@ -162,3 +169,10 @@ CREATE TABLE public.feed_health (
 
 CREATE INDEX idx_feed_health_score ON public.feed_health(health_score);
 CREATE INDEX idx_feed_health_status ON public.feed_health(last_status);
+
+-- ==========================================
+-- FEED HEALTH RLS
+-- ==========================================
+ALTER TABLE public.feed_health ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "feed_health_read_access" ON public.feed_health FOR SELECT USING (true);

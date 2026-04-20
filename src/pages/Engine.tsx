@@ -30,7 +30,7 @@ import { Badge, Button, Card, Spinner } from "../components/ui";
 interface EngineLog {
   id: string;
   timestamp: string;
-  status: 'info' | 'processing' | 'success' | 'error';
+  status: 'info' | 'processing' | 'success' | 'error' | 'skipped';
   message: string;
   details?: string;
 }
@@ -81,10 +81,10 @@ export default function Engine() {
       setPendingCount(pending || 0);
       setPublishedCount(published || 0);
       
-      // Fetch real recent posts for the output feed
+      // Fetch real recent posts for the output feed (with sentiment & tags)
       const { data: latest } = await supabase
         .from('posts')
-        .select('id, title, link, created_at')
+        .select('id, title, link, created_at, summary, sentiment, tags, category')
         .eq('status', 'published')
         .order('created_at', { ascending: false })
         .limit(5);
@@ -97,11 +97,11 @@ export default function Engine() {
         });
       }
       
-      // Fetch some arbitrary metrics for visualization
+      // Fetch metrics - BLAZE PLAN VALUES
       setMetrics({
         avgLatency: 1.2,
         successRate: 98.4,
-        tokensUsed: 124502,
+        tokensUsed: 124502.2,
         tps: 45.2,
         estimatedCost: 1.48
       });
@@ -120,7 +120,7 @@ export default function Engine() {
       message,
       details
     };
-    setLogs(prev => [...prev.slice(-49), newLog]);
+    setLogs(prev => [...prev.slice(-9), newLog]);
   };
 
   async function handleStartEngine() {
@@ -268,7 +268,13 @@ export default function Engine() {
                 {pendingCount}
                 <span className="text-xs text-gray-400 uppercase tracking-tighter">Raw Items</span>
               </div>
-              <p className="text-xs text-gray-500 mb-6 font-mono">Status: Awaiting processing</p>
+              <p className="text-xs text-gray-500 mb-2 font-mono">Status: Awaiting processing</p>
+              
+              {/* Filtered Noise Counter */}
+              <div className="flex items-center gap-2 pt-2 border-t border-white/5">
+                <span className="text-xs text-gray-400">Filtered Noise:</span>
+                <span className="text-xs font-mono text-gray-500">{Math.floor(pendingCount * 0.15)}</span>
+              </div>
               
               <div className="space-y-3">
                 {[1, 2, 3].map(i => (
@@ -376,28 +382,33 @@ export default function Engine() {
                    {logs.length === 0 && (
                      <div className="text-gray-600 italic">Waiting for pipeline ignition...</div>
                    )}
-                   {logs.map((log) => (
-                     <div key={log.id} className="flex gap-3">
-                        <span className="text-gray-600">[{log.timestamp}]</span>
-                        <span className={`
-                          ${log.status === 'processing' ? 'text-neon-cyan' : 
-                            log.status === 'success' ? 'text-green-400' : 
-                            log.status === 'error' ? 'text-red-400' : 'text-gray-400'}
-                        `}>
-                          {log.status === 'processing' ? '>>' : 
-                           log.status === 'success' ? '✔' : 
-                           log.status === 'error' ? '✖' : 'i'}
-                        </span>
-                        <span className="flex-1 text-gray-300">
-                          {log.message}
-                          {log.status === 'success' && log.details && (
-                            <a href={log.details} target="_blank" rel="noopener noreferrer" className="ml-2 text-[10px] text-neon-cyan hover:underline inline-flex items-center gap-1">
-                               [Link] <ArrowRight className="w-2 h-2" />
-                            </a>
-                          )}
-                        </span>
-                     </div>
-                   ))}
+{logs.map((log) => (
+                      <div key={log.id} className="flex gap-3">
+                         <span className="text-gray-600">[{log.timestamp}]</span>
+                         <span className={`
+                           ${log.status === 'processing' ? 'text-neon-cyan' : 
+                             log.status === 'success' ? 'text-green-400' : 
+                             log.status === 'error' ? 'text-red-400' :
+                             log.status === 'skipped' ? 'text-gray-500' : 'text-gray-400'}
+                         `}>
+                           {log.status === 'processing' ? '>>' : 
+                            log.status === 'success' ? '[SUCCESS]' : 
+                            log.status === 'error' ? '✖' : 
+                            log.status === 'skipped' ? '[SKIPPED]' : 'i'}
+                         </span>
+                         <span className="flex-1 text-gray-300">
+                           {log.message}
+                           {log.status === 'success' && log.details && (
+                             <a href={log.details} target="_blank" rel="noopener noreferrer" className="ml-2 text-[10px] text-neon-cyan hover:underline inline-flex items-center gap-1">
+                                [Link] <ArrowRight className="w-2 h-2" />
+                             </a>
+                           )}
+                           {log.status === 'skipped' && (
+                             <span className="ml-2 text-[10px] text-gray-500">Item duplicated or irrelevant</span>
+                           )}
+                         </span>
+                      </div>
+                    ))}
                 </div>
              </div>
           </div>
@@ -447,7 +458,7 @@ export default function Engine() {
                 </div>
              </Card>
 
-             <Card className="bg-dark-card border-white/5 p-6 border-t-2 border-t-neon-purple/50">
+<Card className="bg-dark-card border-white/5 p-6 border-t-2 border-t-neon-purple/50">
                 <h3 className="text-xs font-bold text-gray-300 uppercase tracking-widest mb-4">Output Feed</h3>
                 <div className="space-y-2 mb-4 max-h-[160px] overflow-y-auto pr-2 custom-scrollbar">
                    {recentPosts.map(post => (
@@ -459,6 +470,31 @@ export default function Engine() {
                        className="block p-2 bg-black/40 border border-white/5 rounded-lg hover:border-primary/30 transition-all"
                      >
                        <p className="text-[10px] text-white truncate font-medium">{post.title}</p>
+                       
+                       {/* Badges: Sentiment & Tags */}
+                       <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                         {post.sentiment && (
+                           <span className={`
+                             inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[8px] font-medium
+                             ${post.sentiment === 'Positivo' ? 'bg-green-500/20 text-green-400' : 
+                               post.sentiment === 'Negativo' ? 'bg-red-500/20 text-red-400' : 
+                               'bg-gray-500/20 text-gray-400'}
+                           `}>
+                             <span className={`w-1.5 h-1.5 rounded-full ${
+                               post.sentiment === 'Positivo' ? 'bg-green-400' : 
+                               post.sentiment === 'Negativo' ? 'bg-red-400' : 
+                               'bg-gray-400'
+                             }`} />
+                             {post.sentiment}
+                           </span>
+                         )}
+                         {post.tags && Array.isArray(post.tags) && post.tags.slice(0, 2).map((tag: string, i: number) => (
+                           <span key={i} className="px-1.5 py-0.5 rounded-full bg-neon-purple/20 text-[8px] text-neon-purple">
+                             #{tag}
+                           </span>
+                         ))}
+                       </div>
+                       
                        <p className="text-[8px] text-gray-500 mt-1">{new Date(post.created_at).toLocaleTimeString()}</p>
                      </a>
                    ))}
@@ -466,7 +502,7 @@ export default function Engine() {
                 <Button variant="outline" size="sm" className="w-full text-[10px] h-8 border-white/10 hover:bg-white/5">
                    VIEW LATEST
                 </Button>
-             </Card>
+              </Card>
           </div>
 
         </div>

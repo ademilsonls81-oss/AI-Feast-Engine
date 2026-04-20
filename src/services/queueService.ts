@@ -1,14 +1,10 @@
-import { supabase } from "../lib/supabaseClient";
+import { supabaseAdmin as supabase } from "../lib/supabaseAdmin";
 import OpenAI from "openai";
 
 const MAX_CONCURRENT_POSTS = Number(process.env.MAX_CONCURRENT_POSTS) || 1;
 const BATCH_DELAY_MS = Number(process.env.BATCH_DELAY_MS) || 15000;
 const MAX_RETRIES = 5;
 
-/**
- * Limpa JSON retornado pelo Groq antes de fazer parse.
- * Remove vírgulas extras antes de } e ], markdown blocks e espaços.
- */
 function cleanJSON(text: string): string {
   return text
     .replace(/```json/g, '')
@@ -24,12 +20,12 @@ class QueueService {
   private supabaseClient = supabase;
   
   private openai = new OpenAI({
-    baseURL: "https://api.groq.com/openai/v1",
-    apiKey: process.env.GROQ_API_KEY || "",
+    baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
+    apiKey: process.env.OPENAI_API_KEY || "",
   });
 
   constructor() {
-    console.log(`[QueueService] Inicializado. ConcorrÃƒÂªncia: ${MAX_CONCURRENT_POSTS}, Delay: ${BATCH_DELAY_MS}ms`);
+    console.log(`[QueueService] Inicializado. Concorrência: ${MAX_CONCURRENT_POSTS}, Delay: ${BATCH_DELAY_MS}ms`);
   }
 
   public addTasks(postIds: string[]) {
@@ -66,9 +62,9 @@ class QueueService {
       .eq("id", postId)
       .single();
 
-    if (fetchError || !post) throw new Error(`Post ${postId} nÃƒÂ£o encontrado`);
+    if (fetchError || !post) throw new Error(`Post ${postId} não encontrado`);
 
-    const result = await this.processWithOpenRouter(post);
+    const result = await this.processWithAI(post);
     const retryCount = (post.retry_count || 0) + 1;
 
     if (result.error) {
@@ -78,7 +74,7 @@ class QueueService {
           error_message: result.error,
           retry_count: retryCount
         }).eq("id", postId);
-        console.log(`[QueueService] Post ${postId} falhou definitivamente apÃƒÂ³s ${retryCount} tentativas`);
+        console.log(`[QueueService] Post ${postId} falhou definitivamente após ${retryCount} tentativas`);
       } else {
         await this.supabaseClient.from("posts").update({
           status: "pending",
@@ -100,29 +96,35 @@ class QueueService {
     console.log(`[QueueService] Processado: ${post.title}`);
   }
 
-  private async processWithOpenRouter(post: any) {
+  private async processWithAI(post: any) {
     const rawContent = post.content_raw || post.title || "";
+    
+    if (!rawContent || rawContent.length < 10) {
+      return { error: "Conteúdo insuficiente" };
+    }
+    
     const sourceText = rawContent.length > 3000 ? rawContent.substring(0, 3000) + "..." : rawContent;
 
-    const prompt = `You are a JSON-only API. Return ONLY valid JSON, no explanations, no markdown, no text before or after.
+    const prompt = `You are a JSON-only API. Return ONLY valid JSON with no explanations.
 
-Task: Summarize the news article in Brazilian Portuguese (max 2 sentences, 150 characters). Then translate that summary to: en, es, fr, de, it, ja, ko, zh, ru, ar.
+Task: Analyze the news and return structured data:
+- summary: Brazilian Portuguese summary (max 150 chars)
+- category: Main category (Tecnologia, Economia, Saúde, Ciência, Esportes, Política, Entretenimento, Meio Ambiente, or Geral)
+- tags: 3-5 keywords array
+- sentiment: Analysis (Positivo, Negativo, or Neutro)
+- original_source: URL from the content if available, or null
+- timestamp: publication date if available, or current timestamp
+- translations: Translate summary to: en, es, fr, de, it, ja, ko, zh, ru, ar
 
-Required JSON structure:
+JSON structure:
 {
-  "summary": "resumo em portugues max 150 chars",
-  "translations": {
-    "en": "english summary",
-    "es": "spanish summary",
-    "fr": "french summary",
-    "de": "german summary",
-    "it": "italian summary",
-    "ja": "japanese summary",
-    "ko": "korean summary",
-    "zh": "chinese summary",
-    "ru": "russian summary",
-    "ar": "arabic summary"
-  }
+  "summary": "resumo em português",
+  "category": "Tecnologia",
+  "tags": ["tag1", "tag2", "tag3"],
+  "sentiment": "Neutro",
+  "original_source": "https://exemplo.com",
+  "timestamp": "2024-01-15T10:00:00Z",
+  "translations": {"en":"...", "es":"...", "fr":"...", "de":"...", "it":"...", "ja":"...", "ko":"...", "zh":"...", "ru":"...", "ar":"..."}
 }
 
 Title: ${post.title}
@@ -131,39 +133,33 @@ Content: ${sourceText}`;
     for (let retry = 0; retry < MAX_RETRIES; retry++) {
       try {
         const completion = await this.openai.chat.completions.create({
-          model: "llama-3.1-8b-instant",
+          model: process.env.MODEL || "gemini-2.5-flash",
           messages: [
             { role: "system", content: "You are a JSON-only API. Return ONLY valid JSON with no extra text, markdown, or explanations." },
             { role: "user", content: prompt }
           ],
-          response_format: { type: "json_object" },
           temperature: 0.3
         });
 
         const responseText = completion.choices[0].message.content || "";
 
-        // Limpar response usando funÃƒÂ§ÃƒÂ£o dedicada
         let jsonStr = cleanJSON(responseText);
 
-        // Regex fallback: extrair primeiro bloco JSON se o texto vier misturado
         const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
           jsonStr = cleanJSON(jsonMatch[0]);
         }
 
-        // Tentativa de parse
         let parsed;
         try {
           parsed = JSON.parse(jsonStr);
         } catch (parseError: any) {
-          console.log(`[Groq] JSON parse error: ${parseError.message}`);
-          console.log(`[Groq] Raw response (first 200 chars): ${responseText.substring(0, 200)}`);
-          // Tenta parse direto sem regex (pode ser que o cleanJSON jÃƒÂ¡ resolveu)
-          throw new Error(`JSON invÃƒÂ¡lido apÃƒÂ³s limpeza: ${parseError.message}`);
+          console.log(`[AI Service] JSON parse error: ${parseError.message}`);
+          console.log(`[AI Service] Raw response (first 200 chars): ${responseText.substring(0, 200)}`);
+          throw new Error(`JSON inválido após limpeza: ${parseError.message}`);
         }
 
         if (parsed.summary && parsed.translations && typeof parsed.summary === 'string') {
-          // Validar traduÃƒÂ§ÃƒÂµes
           const requiredLangs = ['en', 'es', 'fr', 'de', 'it', 'ja', 'ko', 'zh', 'ru', 'ar'];
           const allTranslationsPresent = requiredLangs.every(lang => parsed.translations[lang] && parsed.translations[lang].length > 0);
 
@@ -171,7 +167,7 @@ Content: ${sourceText}`;
             return parsed;
           } else {
             const missing = requiredLangs.filter(lang => !parsed.translations[lang] || parsed.translations[lang].length === 0);
-            console.log(`[Groq] Missing translations: ${missing.join(', ')}`);
+            console.log(`[AI Service] Missing translations: ${missing.join(', ')}`);
           }
         }
 
@@ -184,11 +180,11 @@ Content: ${sourceText}`;
         const is429 = err.message?.includes("429") || err.status === 429;
         if (is429 && retry < MAX_RETRIES - 1) {
           const waitTime = Math.pow(2, retry) * 3000;
-          console.log(`[Groq] Rate limited, retry in ${waitTime/1000}s...`);
+          console.log(`[AI Service] Rate limited, retry in ${waitTime/1000}s...`);
           await new Promise(r => setTimeout(r, waitTime));
           continue;
         }
-        console.error(`[Groq Error] ${err.message}`);
+        console.error(`[DETALHE ERRO 400]:`, err.response?.data || err.message);
         return { error: err.message };
       }
     }
@@ -197,4 +193,3 @@ Content: ${sourceText}`;
 }
 
 export const queueService = new QueueService();
-
