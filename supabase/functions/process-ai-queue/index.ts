@@ -2,7 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@1";
 
 const GEMINI_API_KEY = Deno.env.get("OPENAI_API_KEY") || "";
-const MODEL = Deno.env.get("MODEL") || "gemini-2.5-flash";
+const MODEL = Deno.env.get("MODEL") || "gemini-1.5-flash";
 
 function cleanJSON(text: string): string {
   return text
@@ -89,13 +89,15 @@ serve(async (req) => {
     return new Response(JSON.stringify({ error: "Use POST method" }), { status: 405 });
   }
 
-  const { limit = 10 } = await req.json();
+  // FREE TIER: Process only 1 post per request with 15s delay to stay within RPM limits
+  const { limit = 1 } = await req.json();
+  const processedLimit = Math.min(limit, 1); // Maximum 1 post per execution
 
   const { data: pendingPosts, error: fetchError } = await supabase
     .from("posts")
     .select("id, title, content_raw, retry_count")
     .eq("status", "pending")
-    .limit(limit);
+    .limit(processedLimit);
 
   if (fetchError) {
     return new Response(JSON.stringify({ error: fetchError.message }), { status: 500 });
@@ -108,8 +110,18 @@ serve(async (req) => {
   }
 
   const results = [];
+  let requestCount = 0;
 
   for (const post of pendingPosts) {
+    // Throttle: Check if we've made too many requests this minute
+    requestCount++;
+    
+    // Free tier = 15 RPM, so max 1 request per 4 seconds
+    if (requestCount > 1) {
+      // Wait 15 seconds between each post to respect rate limits
+      await new Promise(r => setTimeout(r, 15000));
+    }
+    
     const rawContent = post.content_raw || post.title || "";
     
     if (!rawContent || rawContent.length < 10) {
