@@ -2,7 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@1";
 
 const GEMINI_API_KEY = Deno.env.get("OPENAI_API_KEY") || "";
-const MODEL = Deno.env.get("MODEL") || "gemini-1.5-flash";
+const MODEL = "gemini-1.5-flash"; // Free tier only - no other model allowed
 
 function cleanJSON(text: string): string {
   return text
@@ -39,9 +39,10 @@ async function callGemini(prompt: string, retryCount = 0): Promise<{ summary: st
       const errorMsg = data.error?.message || data.error || "Unknown";
       console.error(`[GEMINI ERROR ${res.status}]:`, JSON.stringify(data));
       
-      if (res.status === 503 && retryCount < 3) {
-        const delay = Math.pow(2, retryCount) * 1000;
-        console.log(`[GEMINI] 503 received, retrying in ${delay}ms (attempt ${retryCount + 1}/3)`);
+      // Retry 429 (rate limit) with 60 second wait
+      if ((res.status === 429 || res.status === 503) && retryCount < 3) {
+        const delay = 60000; // 60 seconds for rate limit
+        console.log(`[GEMINI] ${res.status} received, retrying in 60s (attempt ${retryCount + 1}/3)`);
         await new Promise(r => setTimeout(r, delay));
         return callGemini(prompt, retryCount + 1);
       }
@@ -113,13 +114,12 @@ serve(async (req) => {
   let requestCount = 0;
 
   for (const post of pendingPosts) {
-    // Throttle: Check if we've made too many requests this minute
+    // Throttle: Max 3 requests per minute (free tier safety limit)
     requestCount++;
     
-    // Free tier = 15 RPM, so max 1 request per 4 seconds
+    // Free tier = 3 RPM max = 20 second delay between requests
     if (requestCount > 1) {
-      // Wait 15 seconds between each post to respect rate limits
-      await new Promise(r => setTimeout(r, 15000));
+      await new Promise(r => setTimeout(r, 20000)); // 20 seconds
     }
     
     const rawContent = post.content_raw || post.title || "";
