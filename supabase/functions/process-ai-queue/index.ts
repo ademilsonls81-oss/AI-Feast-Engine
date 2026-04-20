@@ -105,11 +105,13 @@ serve(async (req) => {
   }
 
   if (!pendingPosts || pendingPosts.length === 0) {
+    console.log("[FREE TIER] No pending posts");
     return new Response(JSON.stringify({ message: "No pending posts", processed: 0 }), {
       headers: { "Content-Type": "application/json" }
     });
   }
 
+  console.log("[FREE TIER] Processing: 1 item sync...");
   const results = [];
   let requestCount = 0;
 
