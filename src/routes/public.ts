@@ -51,7 +51,7 @@ function calcScore(post: any): number {
 // ==========================================
 // SEARCH
 // ==========================================
-router.get("/search", apiKeyRateLimit, async (req, res) => {
+router.get("/search", async (req, res) => {
   const { q, lang, category, limit = 20, offset = 0 } = req.query;
   const apiKey = req.header("X-API-Key");
 
@@ -69,7 +69,7 @@ router.get("/search", apiKeyRateLimit, async (req, res) => {
 
   let query = supabase.from("posts").select("*", { count: "exact" }).eq("status", "published");
   if (q) query = query.or(`title.ilike.%${q}%,summary.ilike.%${q}%`);
-  if (category) query = query.ilike("category", (category as string).toLowerCase());
+  if (category) query = query.ilike("category", `%${(category as string).toLowerCase()}%`);
 
   const limitNum = Math.min(Number(limit), 50);
   const offsetNum = Number(offset);
@@ -108,7 +108,7 @@ router.get("/feed", apiKeyRateLimit, async (req, res) => {
   if (cached) return res.json(cached);
 
   let query = supabase.from("posts").select("*", { count: "exact" }).eq("status", "published");
-  if (category) query = query.ilike("category", (category as string).toLowerCase());
+  if (category) query = query.ilike("category", `%${(category as string).toLowerCase()}%`);
 
   const limitNum = Math.min(Number(limit), 50);
   const offsetNum = Number(offset);
@@ -131,6 +131,12 @@ router.get("/feed", apiKeyRateLimit, async (req, res) => {
 // PUBLIC INGESTION - para admins inserirem artigos manualmente
 // ==========================================
 router.post("/ingest", async (req, res) => {
+  const adminKey = req.headers["x-admin-key"] || req.query.admin_key;
+  const expectedKey = process.env.ADMIN_SECRET_KEY;
+  if (!expectedKey || adminKey !== expectedKey) {
+    return res.status(401).json({ error: "Unauthorized — admin key required" });
+  }
+
   const limit = Number(req.query.limit) || 100;
   const limitNum = Math.min(limit, 5000);
   
