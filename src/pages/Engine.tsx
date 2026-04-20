@@ -499,9 +499,9 @@ export default function Engine() {
                      </a>
                    ))}
                 </div>
-                <Button variant="outline" size="sm" className="w-full text-[10px] h-8 border-white/10 hover:bg-white/5">
-                   VIEW LATEST
-                </Button>
+<Button variant="outline" size="sm" className="w-full text-[10px] h-8 border-white/10 hover:bg-white/5" onClick={() => window.open('/feed', '_blank')}>
+                    VIEW LATEST
+                 </Button>
               </Card>
           </div>
 
