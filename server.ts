@@ -11,8 +11,9 @@ import crypto from "crypto";
 import { WebSocketServer, WebSocket } from "ws";
 import * as Sentry from "@sentry/node";
 
-import { supabase } from "./src/lib/supabaseClient.js";
-import { queueService } from "./src/services/queueService.js";
+import { supabaseAdmin as supabase } from "./src/lib/supabaseAdmin.js";
+// QueueService movido para Supabase Edge Function
+// import { queueService } from "./src/services/queueService.js";
 import { globalIpLimit, apiKeyRateLimit } from "./src/middleware/rateLimit.js";
 import adminRouter from "./src/routes/admin.js";
 import skillsRouter from "./src/routes/skills.js";
@@ -71,7 +72,12 @@ function requireAiKey(): string {
 
 const stripeSecretKey = requireEnv("STRIPE_SECRET_KEY", "Required for payments");
 const stripe = new Stripe(stripeSecretKey, { apiVersion: "2026-03-25.dahlia" as any });
-console.log(">>> Stripe initialized");
+if (stripeSecretKey === "sk_test_placeholder" || stripeSecretKey.length < 20) {
+  console.warn("⚠️  [Stripe] Chave inválida ou placeholder detectada. Pagamentos desabilitados.");
+  process.env.STRIPE_ENABLED = "false";
+} else {
+  console.log(">>> Stripe initialized");
+}
 
 // ==========================================
 // CACHE LAYER (Em memória)
@@ -430,26 +436,12 @@ setInterval(async () => {
   } catch (err: any) { console.error(`>>> [Heartbeat] Error: ${err.message}`); }
 }, 10*60*1000);
 
-// AutoQueue
-console.log(">>> [AutoQueue] Starting interval...");
-setInterval(async () => {
-  try {
-    const { data: pending, error } = await supabase.from("posts").select("id").eq("status", "pending").limit(20);
-    if (!error && pending?.length) queueService.addTasks(pending.map(p => p.id));
-  } catch (err: any) { console.error(">>> [AutoQueue] Error:", err.message); }
-}, 5*60*1000);
+// AutoQueue - DISABLED to save billing
+// Use cron-job.org for processing instead
+// setInterval(() => {}, 999999999999);
 
-// RetryHandler
-setInterval(async () => {
-  try {
-    const oneHourAgo = new Date(Date.now() - 60*60*1000).toISOString();
-    const { data: errorPosts } = await supabase.from("posts").select("id, retry_count").eq("status", "error").lt("updated_at", oneHourAgo).lt("retry_count", 3).limit(10);
-    if (errorPosts?.length) {
-      const idsToRetry = errorPosts.map(p => p.id);
-      await supabase.from("posts").update({ status: "pending" }).in("id", idsToRetry);
-    }
-  } catch (err: any) { console.error(">>> [RetryHandler] Error:", err.message); }
-}, 30*60*1000);
+// RetryHandler - DISABLED
+// setInterval(() => {}, 999999999999);
 
 // ==========================================
 // Global Error Handlers
