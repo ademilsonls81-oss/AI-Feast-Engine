@@ -47,7 +47,10 @@ export default function Engine() {
     successRate: 0,
     tokensUsed: 0,
     tps: 0,
-    estimatedCost: 0
+    estimatedCost: 0,
+    insightDensity: 0,
+    lastSync: null,
+    processedToday: 0
   });
   const [exportFormat, setExportFormat] = useState('json');
 
@@ -97,13 +100,26 @@ export default function Engine() {
         });
       }
       
-      // Fetch metrics - BLAZE PLAN VALUES
+      // Fetch metrics with real data
+      const today = new Date().toISOString().split('T')[0];
+      const { count: processedToday } = await supabase
+        .from('posts')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'published')
+        .gte('created_at', today);
+      
+      const totalPosts = (pending || 0) + (published || 0);
+      const insightDensity = totalPosts > 0 ? Math.round(((published || 0) / totalPosts) * 100) : 0;
+      
       setMetrics({
         avgLatency: 1.2,
         successRate: 98.4,
         tokensUsed: 124502.2,
         tps: 45.2,
-        estimatedCost: 1.48
+        estimatedCost: 1.48,
+        insightDensity,
+        lastSync: new Date().toLocaleTimeString(),
+        processedToday: processedToday || 0
       });
     } catch (err) {
       console.error("[Engine] Fetch stats error:", err);
@@ -120,58 +136,22 @@ export default function Engine() {
       message,
       details
     };
-    setLogs(prev => [...prev.slice(-9), newLog]);
+    setLogs(prev => [...prev.slice(-10), newLog]);
   };
 
-  async function handleStartEngine() {
+  async function handleRefresh() {
     if (isProcessing) return;
     
     setIsProcessing(true);
-    let currentPending = pendingCount;
-
-    if (currentPending === 0) {
-      addLog("Pipeline empty. Attempting auto-ingestion...", "info");
-      try {
-        const ingestRes = await api.post("/api/admin/ingest");
-        addLog(ingestRes.data.message, "success");
-        // Refetch to get new count
-        const { count } = await supabase.from('posts').select('*', { count: 'exact', head: true }).eq('status', 'pending');
-        currentPending = count || 0;
-        setPendingCount(currentPending);
-      } catch (err: any) {
-        addLog("Auto-ingestion failed: " + err.message, "error");
-        setIsProcessing(false);
-        return;
-      }
-    }
-
-    if (currentPending === 0) {
-      addLog("No new items found. Ingestion cycle complete.", "info");
-      setIsProcessing(false);
-      return;
-    }
-
-    addLog(`Initializing AI Content Factory for ${currentPending} items...`, "info");
+    addLog("Refreshing feed...", "info");
     
     try {
-      addLog(`Preparing batch processing...`, "processing");
-      
-      // Call the batch process API
-      const res = await api.post("/api/admin/process-batch");
-      
-      addLog("Gemini AI connection established...", "info");
-      addLog("Distilling raw data into structured knowledge...", "processing");
-      
-      if (res.data.processed > 0 || res.data.message.includes("Queueing")) {
-        addLog(`Successfully queued ${currentPending} items!`, "success");
-      } else {
-        addLog("No items were processed. Check system logs.", "error");
-      }
+      await fetchStats();
+      addLog("Feed updated successfully!", "success");
     } catch (err: any) {
-      addLog("Pipeline interruption: " + (err.response?.data?.error || err.message), "error");
+      addLog("Refresh failed: " + err.message, "error");
     } finally {
       setIsProcessing(false);
-      fetchStats();
     }
   }
 
@@ -216,12 +196,12 @@ export default function Engine() {
              <Button
                 variant="primary"
                 size="lg"
-                onClick={handleStartEngine}
+                onClick={handleRefresh}
                 disabled={isProcessing}
                 className="bg-gradient-to-r from-neon-purple to-neon-cyan neon-glow-purple border-0 px-8 h-14 rounded-2xl gap-3 text-base font-bold"
              >
                 {isProcessing ? <Loader2 className="w-5 h-5 animate-spin" /> : <CloudLightning className="w-5 h-5" />}
-                {isProcessing ? "IGNITING ENGINE..." : "START FACTORY"}
+                {isProcessing ? "REFRESHING..." : "REFRESH FEED"}
              </Button>
           </div>
         </motion.div>
@@ -413,50 +393,49 @@ export default function Engine() {
              </div>
           </div>
 
-          {/* Real-time Metrics */}
-          <div className="space-y-6">
-             <Card className="bg-dark-card border-white/5 p-6">
-                <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-6 flex items-center gap-2">
-                   <Gauge className="w-4 h-4" /> Live Performance
-                </h3>
-                
-                <div className="space-y-6">
-                   <div>
-                     <div className="flex justify-between text-xs mb-2">
-                        <span className="text-gray-400">Tokens per Second</span>
-                        <span className="text-neon-cyan font-bold">{metrics.tps} TPS</span>
-                     </div>
-                     <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
-                        <motion.div 
-                          initial={{ width: 0 }}
-                          animate={{ width: '65%' }}
-                          className="h-full bg-neon-cyan" 
-                        />
-                     </div>
-                   </div>
-
-                   <div>
-                     <div className="flex justify-between text-xs mb-2">
-                        <span className="text-gray-400">Estimated Cost (MTD)</span>
-                        <span className="text-green-400 font-bold">${metrics.estimatedCost} USD</span>
-                     </div>
-                     <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
-                        <motion.div 
-                          initial={{ width: 0 }}
-                          animate={{ width: '25%' }}
-                          className="h-full bg-green-400" 
-                        />
-                     </div>
-                   </div>
-
-                   <div className="pt-4 border-t border-white/5">
-                      <div className="flex items-center justify-between">
-                         <div className="text-[10px] text-gray-500 uppercase">Token Throughput</div>
-                         <div className="text-sm font-bold text-neon-purple">{metrics.tokensUsed.toLocaleString()}</div>
+{/* Real-time Metrics - Public View */}
+              <Card className="bg-dark-card border-white/5 p-6">
+                 <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-6 flex items-center gap-2">
+                    <Gauge className="w-4 h-4" /> Live Performance
+                 </h3>
+                 
+                 <div className="space-y-6">
+                    <div>
+                      <div className="flex justify-between text-xs mb-2">
+                         <span className="text-gray-400">Insight Density</span>
+                         <span className="text-neon-cyan font-bold">{metrics.insightDensity}%</span>
                       </div>
-                   </div>
-                </div>
-             </Card>
+                      <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
+                         <motion.div 
+                           initial={{ width: 0 }}
+                           animate={{ width: `${metrics.insightDensity}%` }}
+                           className="h-full bg-neon-cyan" 
+                         />
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="flex justify-between text-xs mb-2">
+                         <span className="text-gray-400">Update Frequency</span>
+                         <span className="text-green-400 font-bold">{metrics.lastSync || 'Just now'}</span>
+                      </div>
+                      <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
+                         <motion.div 
+                           initial={{ width: 0 }}
+                           animate={{ width: '50%' }}
+                           className="h-full bg-green-400" 
+                         />
+                      </div>
+                    </div>
+
+                    <div className="pt-4 border-t border-white/5">
+                       <div className="flex items-center justify-between">
+                          <div className="text-[10px] text-gray-500 uppercase">Data Processed Today</div>
+                          <div className="text-sm font-bold text-neon-purple">{metrics.processedToday.toLocaleString()}</div>
+                       </div>
+                    </div>
+                 </div>
+              </Card>
 
 <Card className="bg-dark-card border-white/5 p-6 border-t-2 border-t-neon-purple/50">
                 <h3 className="text-xs font-bold text-gray-300 uppercase tracking-widest mb-4">Output Feed</h3>
