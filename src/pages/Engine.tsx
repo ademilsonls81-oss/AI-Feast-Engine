@@ -476,13 +476,13 @@ export default function Engine() {
                          {post.sentiment && (
                            <span className={`
                              inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[8px] font-medium
-                             ${post.sentiment === 'Positivo' ? 'bg-green-500/20 text-green-400' : 
-                               post.sentiment === 'Negativo' ? 'bg-red-500/20 text-red-400' : 
+                             ${post.sentiment === 'Positive' ? 'bg-green-500/20 text-green-400' : 
+                               post.sentiment === 'Negative' ? 'bg-red-500/20 text-red-400' : 
                                'bg-gray-500/20 text-gray-400'}
                            `}>
                              <span className={`w-1.5 h-1.5 rounded-full ${
-                               post.sentiment === 'Positivo' ? 'bg-green-400' : 
-                               post.sentiment === 'Negativo' ? 'bg-red-400' : 
+                               post.sentiment === 'Positive' ? 'bg-green-400' : 
+                               post.sentiment === 'Negative' ? 'bg-red-400' : 
                                'bg-gray-400'
                              }`} />
                              {post.sentiment}

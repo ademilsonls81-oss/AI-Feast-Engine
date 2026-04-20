@@ -107,22 +107,22 @@ class QueueService {
 
     const prompt = `You are a JSON-only API. Return ONLY valid JSON with no explanations.
 
-Task: Analyze the news and return structured data:
-- summary: Brazilian Portuguese summary (max 150 chars)
-- category: Main category (Tecnologia, Economia, Saúde, Ciência, Esportes, Política, Entretenimento, Meio Ambiente, or Geral)
+Task: Analyze the news and return structured data (ALL IN ENGLISH):
+- summary: English summary (max 150 chars)
+- category: Main category (Technology, Economy, Health, Science, Sports, Politics, Entertainment, Environment, or General)
 - tags: 3-5 keywords array
-- sentiment: Analysis (Positivo, Negativo, or Neutro)
+- sentiment: Analysis (Positive, Neutral, or Negative)
 - original_source: URL from the content if available, or null
 - timestamp: publication date if available, or current timestamp
 - translations: Translate summary to: en, es, fr, de, it, ja, ko, zh, ru, ar
 
 JSON structure:
 {
-  "summary": "resumo em português",
-  "category": "Tecnologia",
+  "summary": "summary in English",
+  "category": "Technology",
   "tags": ["tag1", "tag2", "tag3"],
-  "sentiment": "Neutro",
-  "original_source": "https://exemplo.com",
+  "sentiment": "Neutral",
+  "original_source": "https://example.com",
   "timestamp": "2024-01-15T10:00:00Z",
   "translations": {"en":"...", "es":"...", "fr":"...", "de":"...", "it":"...", "ja":"...", "ko":"...", "zh":"...", "ru":"...", "ar":"..."}
 }
