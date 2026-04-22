@@ -1,5 +1,5 @@
 <div align="center">
-<img width="1200" height="475" alt="AIFeast Banner" />
+<img width="1201" height="475" alt="Image" src="https://github.com/user-attachments/assets/cbfa02ee-1b29-4266-a671-ae12d5467398" />
 </div>
 
 # Run and deploy your AI Studio app
